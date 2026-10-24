@@ -33,6 +33,39 @@ $ npm install
 
 ## Compile and run the project
 
+Before starting the application, configure an existing PostgreSQL database.
+Create a `.env` file in the project root with your actual connection settings:
+
+```dotenv
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=your_database_user
+DB_PASSWORD=your_database_password
+DB_NAME=your_existing_database
+```
+
+These are placeholders, not database provisioning commands. Use the database
+and user from the existing SQL setup. The `.env` file is ignored by Git.
+Alternatively, provide the same variables through the runtime environment;
+runtime values take precedence over `.env` values.
+
+`AppModule` loads these settings with `ConfigModule.forRoot({ isGlobal: true })`.
+`TypeOrmModule.forRootAsync()` injects `ConfigService` into its factory and
+builds the PostgreSQL connection options. `getOrThrow()` rejects missing
+variables at startup, and `Number()` converts `DB_PORT` from a string to a
+number. Set it to a valid PostgreSQL port; `getOrThrow()` does not validate
+empty strings or port ranges.
+
+`autoLoadEntities: true` includes entities registered by feature modules with
+`TypeOrmModule.forFeature([YourEntity])`; it does not scan the database or
+generate entity classes. `synchronize: false` prevents automatic schema
+changes. Existing tables must already be created with SQL, and future entities
+must match their table names, column names, types, primary keys, nullability,
+defaults, and relationships.
+
+See the NestJS [Configuration](https://docs.nestjs.com/techniques/configuration)
+and [TypeORM](https://docs.nestjs.com/techniques/database) documentation.
+
 ```bash
 # development
 $ npm run start
@@ -43,6 +76,18 @@ $ npm run start:dev
 # production mode
 $ npm run start:prod
 ```
+
+The application initializes its database connection before it starts serving
+HTTP requests. A successful `Nest application successfully started` message
+confirms that startup, including database initialization, completed. It does
+not verify that future entity mappings match the existing tables.
+
+If startup fails, check the error:
+
+- `Configuration key "DB_..." does not exist`: provide the named `DB_*` variable.
+- `ECONNREFUSED`: check that PostgreSQL is running and the host/port are correct.
+- `password authentication failed`: check the database user and password.
+- `database ... does not exist`: point `DB_NAME` to the existing database.
 
 ## Run tests
 
@@ -56,6 +101,9 @@ $ npm run test:e2e
 # test coverage
 $ npm run test:cov
 ```
+
+Unit tests do not require PostgreSQL. The e2e suite imports `AppModule`, so it
+requires the database settings above and a reachable PostgreSQL instance.
 
 ## Deployment
 
