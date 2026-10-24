@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title VARCHAR(120) NOT NULL,
+  description TEXT,
+  status VARCHAR(20) NOT NULL DEFAULT 'DRAFT',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
