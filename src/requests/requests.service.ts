@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RequestEntity } from './entities/request.entity';
@@ -13,6 +13,16 @@ export class RequestsService {
 
   async findAll(): Promise<RequestEntity[]> {
     return this.repository.find();
+  }
+
+  async findOne(id: string): Promise<RequestEntity> {
+    const request = await this.repository.findOneBy({ id });
+
+    if (!request) {
+      throw new NotFoundException(`Request ${id} not found`);
+    }
+
+    return request;
   }
 
   // 创建请求单

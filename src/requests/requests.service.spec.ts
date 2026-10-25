@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { CreateRequestDto } from './dto/create-request.dto';
@@ -7,6 +8,7 @@ import { RequestsService } from './requests.service';
 describe('RequestsService', () => {
   let service: RequestsService;
   const repository = {
+    findOneBy: jest.fn(),
     create: jest.fn((data: Partial<RequestEntity>) => data),
     save: jest.fn(),
   };
@@ -21,6 +23,23 @@ describe('RequestsService', () => {
     }).compile();
 
     service = module.get<RequestsService>(RequestsService);
+  });
+
+  it('returns the request matching the UUID', async () => {
+    const id = '550e8400-e29b-41d4-a716-446655440000';
+    const saved = { id, title: 'Request', status: 'DRAFT' };
+    repository.findOneBy.mockResolvedValueOnce(saved);
+
+    await expect(service.findOne(id)).resolves.toEqual(saved);
+    expect(repository.findOneBy).toHaveBeenCalledWith({ id });
+  });
+
+  it('throws NotFoundException when the UUID has no matching request', async () => {
+    const id = '550e8400-e29b-41d4-a716-446655440000';
+    repository.findOneBy.mockResolvedValueOnce(null);
+
+    await expect(service.findOne(id)).rejects.toBeInstanceOf(NotFoundException);
+    expect(repository.findOneBy).toHaveBeenCalledWith({ id });
   });
 
   it.each([undefined, 'Details'])(

@@ -1,4 +1,11 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+} from '@nestjs/common';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { RequestsService } from './requests.service';
 
@@ -9,6 +16,11 @@ export class RequestsController {
   @Get()
   findAll() {
     return this.requestsService.findAll();
+  }
+
+  @Get(':id')
+  findOne(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.requestsService.findOne(id);
   }
 
   @Post()

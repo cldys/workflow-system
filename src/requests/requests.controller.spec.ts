@@ -9,6 +9,7 @@ import { RequestsService } from './requests.service';
 describe('RequestsController', () => {
   let app: INestApplication;
   const repository = {
+    findOneBy: jest.fn(),
     create: jest.fn((data: Partial<RequestEntity>) => data),
     save: jest.fn((data: Partial<RequestEntity>) =>
       Promise.resolve({
@@ -42,6 +43,45 @@ describe('RequestsController', () => {
 
   afterEach(async () => {
     await app.close();
+  });
+
+  it('returns 400 for an invalid UUID without querying the repository', async () => {
+    await request(app.getHttpServer()).get('/requests/not-a-uuid').expect(400);
+
+    expect(repository.findOneBy).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 when a valid UUID has no matching request', async () => {
+    const id = '550e8400-e29b-41d4-a716-446655440000';
+    repository.findOneBy.mockResolvedValueOnce(null);
+
+    await request(app.getHttpServer()).get(`/requests/${id}`).expect(404);
+
+    expect(repository.findOneBy).toHaveBeenCalledWith({ id });
+  });
+
+  it('returns 200 and the request matching the UUID', async () => {
+    const id = '550e8400-e29b-41d4-a716-446655440000';
+    const saved = {
+      id,
+      title: 'Request',
+      description: null,
+      status: 'DRAFT',
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      updatedAt: new Date('2026-01-01T00:00:00Z'),
+    };
+    repository.findOneBy.mockResolvedValueOnce(saved);
+
+    const response = await request(app.getHttpServer())
+      .get(`/requests/${id}`)
+      .expect(200);
+
+    expect(response.body).toEqual({
+      ...saved,
+      createdAt: saved.createdAt.toISOString(),
+      updatedAt: saved.updatedAt.toISOString(),
+    });
+    expect(repository.findOneBy).toHaveBeenCalledWith({ id });
   });
 
   it.each([
