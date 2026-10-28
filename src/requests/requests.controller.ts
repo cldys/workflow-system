@@ -1,13 +1,17 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   ParseUUIDPipe,
   Post,
 } from '@nestjs/common';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { RequestsService } from './requests.service';
+
+import { isUUID } from 'class-validator';
 
 @Controller('requests')
 export class RequestsController {
@@ -24,7 +28,13 @@ export class RequestsController {
   }
 
   @Post()
-  createRequest(@Body() dto: CreateRequestDto) {
-    return this.requestsService.createRequest(dto);
+  createRequest(
+    @Body() dto: CreateRequestDto,
+    @Headers('x-demo-user-id') actorId: string,
+  ) {
+    if (!actorId || !isUUID(actorId)) {
+      throw new BadRequestException('X-Demo-User-Id must be a valid UUID');
+    }
+    return this.requestsService.createRequest(dto, actorId);
   }
 }
