@@ -1,4 +1,6 @@
 import {
+  HttpCode,
+  HttpStatus,
   BadRequestException,
   Body,
   Controller,
@@ -36,5 +38,19 @@ export class RequestsController {
       throw new BadRequestException('X-Demo-User-Id must be a valid UUID');
     }
     return this.requestsService.createRequest(dto, actorId);
+  }
+
+  @Post(':id/submit')
+  @HttpCode(HttpStatus.OK)
+  submitRequest(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Headers('x-demo-user-id')
+    actorId: string,
+  ) {
+    // 手动校验：先使用 @Headers() 获取值，再通过 if 判断并抛出异常。
+    if (!actorId || !isUUID(actorId)) {
+      throw new BadRequestException('X-Demo-User-Id must be a valid UUID');
+    }
+    return this.requestsService.submitRequest(id, actorId);
   }
 }

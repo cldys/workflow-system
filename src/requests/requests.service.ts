@@ -78,4 +78,53 @@ export class RequestsService {
       return savedRequest;
     });
   }
+
+  // 提交工单
+  async submitRequest(id: string, actorId: string): Promise<RequestEntity> {
+    return this.dataSource.transaction(async (manager) => {
+      const requests = manager.getRepository(RequestEntity);
+      const users = manager.getRepository(UserEntity);
+      const events = manager.getRepository(RequestEventEntity);
+
+      // 1. 查找工单
+      const request = await requests.findOneBy({ id });
+
+      if (!request) {
+        throw new NotFoundException(`Request ${id} not found`);
+      }
+
+      // 2. 验证操作人
+      const actor = await users.findOneBy({ id: actorId });
+
+      if (!actor) {
+        throw new NotFoundException(`User ${actorId} not found`);
+      }
+
+      // 3. 检查当前状态
+      if (request.status !== 'DRAFT') {
+        throw new ConflictException('Only DRAFT requests can be submitted');
+      }
+
+      // 4. 更新状态
+      const fromStatus = request.status;
+      request.status = 'PENDING';
+
+      const savedRequest = await requests.save(request);
+
+      // 5. 记录状态变化
+      const event = events.create({
+        requestId: savedRequest.id,
+        actorId: actor.id,
+        action: 'SUBMITTED',
+        fromStatus,
+        toStatus: 'PENDING',
+        note: null,
+      });
+
+      await events.save(event);
+
+      // 6. 返回更新后的工单
+      return savedRequest;
+    });
+  }
 }
