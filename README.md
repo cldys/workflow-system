@@ -89,6 +89,19 @@ If startup fails, check the error:
 - `password authentication failed`: check the database user and password.
 - `database ... does not exist`: point `DB_NAME` to the existing database.
 
+## Requests API
+
+`POST /requests` requires a `title` and a `createdById` UUID belonging to an
+existing row in `users`; `description` is optional. Until authentication is
+available, the client supplies `createdById` in the request body. Creation
+returns `201` with status `DRAFT` and the creator ID. Missing or malformed
+`createdById` returns `400`; a valid UUID with no matching user returns `404`.
+
+`RequestsModule` registers `RequestEntity`, `UserEntity`, and
+`RequestEventEntity` so TypeORM can resolve all their relationships. With
+`synchronize: false`, the existing database must already contain the matching
+`users`, `requests` (including `created_by`), and `request_events` schema.
+
 ## Run tests
 
 ```bash

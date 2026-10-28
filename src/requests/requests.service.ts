@@ -3,12 +3,15 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RequestEntity } from './entities/request.entity';
 import { CreateRequestDto } from './dto/create-request.dto';
+import { UserEntity } from '../users/entities/user.entity';
 
 @Injectable()
 export class RequestsService {
   constructor(
     @InjectRepository(RequestEntity)
     private readonly repository: Repository<RequestEntity>,
+    @InjectRepository(UserEntity)
+    private readonly usersRepository: Repository<UserEntity>,
   ) {}
 
   async findAll(): Promise<RequestEntity[]> {
@@ -27,10 +30,17 @@ export class RequestsService {
 
   // 创建请求单
   async createRequest(dto: CreateRequestDto): Promise<RequestEntity> {
+    const creator = await this.usersRepository.findOneBy({ id: dto.createdById });
+
+    if (!creator) {
+      throw new NotFoundException(`User ${dto.createdById} not found`);
+    }
+
     const request = this.repository.create({
       title: dto.title,
       description: dto.description,
       status: 'DRAFT',
+      createdById: creator.id,
     });
 
     return this.repository.save(request);
