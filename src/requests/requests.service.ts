@@ -2,6 +2,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -125,6 +126,156 @@ export class RequestsService {
 
       // 6. 返回更新后的工单
       return savedRequest;
+    });
+  }
+
+  // 审批通过
+  async approveRequest(id: string, actorId: string): Promise<RequestEntity> {
+    return this.dataSource.transaction(async (manager) => {
+      const requests = manager.getRepository(RequestEntity);
+      const users = manager.getRepository(UserEntity);
+      const events = manager.getRepository(RequestEventEntity);
+
+      // 1. 确认工单存在
+      const request = await requests.findOneBy({ id });
+
+      if (!request) {
+        throw new NotFoundException(`Request ${id} not found`);
+      }
+
+      // 2. 确认操作人存在
+      const actor = await users.findOneBy({ id: actorId });
+
+      if (!actor) {
+        throw new NotFoundException(`User ${actorId} not found`);
+      }
+
+      // 3. 记录状态变更前的状态
+      const fromStatus = request.status;
+
+      // 4. 原子地更新状态，避免竞争请求重复成功
+      const result = await requests
+        .createQueryBuilder()
+        .update(RequestEntity)
+        .set({ status: 'APPROVED' })
+        .where('id = :id', { id })
+        .andWhere('status = :status', { status: 'PENDING' })
+        .execute();
+
+      if (result.affected !== 1) {
+        const current = await requests.findOneBy({ id });
+
+        if (!current) {
+          throw new NotFoundException(`Request ${id} not found`);
+        }
+
+        throw new ConflictException('Only PENDING requests can be approved');
+      }
+
+      // 5. 只有状态更新成功，才能写入事件
+      const event = events.create({
+        requestId: id,
+        actorId: actor.id,
+        action: 'APPROVED',
+        fromStatus: 'PENDING',
+        toStatus: 'APPROVED',
+        note: null,
+      });
+
+      await events.save(event);
+
+      // 6. 返回最新的工单
+      const updatedRequest = await requests.findOneBy({ id });
+
+      if (!updatedRequest) {
+        throw new NotFoundException(`Request ${id} not found`);
+      }
+
+      return updatedRequest;
+    });
+  }
+
+  async rejectRequest(
+    id: string,
+    actorId: string,
+    reason: string,
+  ): Promise<RequestEntity> {
+    const note = reason.trim();
+
+    if (!note || note.length > 500) {
+      throw new BadRequestException('reason must contain 1 to 500 characters');
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      const requests = manager.getRepository(RequestEntity);
+      const users = manager.getRepository(UserEntity);
+      const events = manager.getRepository(RequestEventEntity);
+
+      const request = await requests.findOneBy({ id });
+
+      if (!request) {
+        throw new NotFoundException(`Request ${id} not found`);
+      }
+
+      const actor = await users.findOneBy({ id: actorId });
+
+      if (!actor) {
+        throw new NotFoundException(`User ${actorId} not found`);
+      }
+
+      const result = await requests
+        .createQueryBuilder()
+        .update(RequestEntity)
+        .set({ status: 'REJECTED' })
+        .where('id = :id', { id })
+        .andWhere('status = :status', { status: 'PENDING' })
+        .execute();
+
+      if (result.affected !== 1) {
+        const current = await requests.findOneBy({ id });
+
+        if (!current) {
+          throw new NotFoundException(`Request ${id} not found`);
+        }
+
+        throw new ConflictException('Only PENDING requests can be rejected');
+      }
+
+      const event = events.create({
+        requestId: id,
+        actorId: actor.id,
+        action: 'REJECTED',
+        fromStatus: 'PENDING',
+        toStatus: 'REJECTED',
+        note,
+      });
+
+      await events.save(event);
+
+      const updatedRequest = await requests.findOneBy({ id });
+
+      if (!updatedRequest) {
+        throw new NotFoundException(`Request ${id} not found`);
+      }
+
+      return updatedRequest;
+    });
+  }
+
+  // 查找操作历史
+  async findEvents(id: string): Promise<RequestEventEntity[]> {
+    const request = await this.repository.findOneBy({ id });
+
+    if (!request) {
+      throw new NotFoundException(`Request ${id} not found`);
+    }
+
+    return this.dataSource.getRepository(RequestEventEntity).find({
+      where: { requestId: id },
+      order: {
+        createdAt: 'ASC',
+        id: 'ASC',
+      },
     });
   }
 }

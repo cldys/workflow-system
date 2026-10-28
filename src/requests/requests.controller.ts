@@ -14,6 +14,7 @@ import { CreateRequestDto } from './dto/create-request.dto';
 import { RequestsService } from './requests.service';
 
 import { isUUID } from 'class-validator';
+import { RejectRequestDto } from './dto/reject-request.dto';
 
 @Controller('requests')
 export class RequestsController {
@@ -52,5 +53,37 @@ export class RequestsController {
       throw new BadRequestException('X-Demo-User-Id must be a valid UUID');
     }
     return this.requestsService.submitRequest(id, actorId);
+  }
+
+  @Post(':id/approve')
+  @HttpCode(HttpStatus.OK)
+  approveRequest(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Headers('x-demo-user-id') actorId: string,
+  ) {
+    if (!actorId || !isUUID(actorId)) {
+      throw new BadRequestException('X-Demo-User-Id must be a valid UUID');
+    }
+
+    return this.requestsService.approveRequest(id, actorId);
+  }
+
+  @Post(':id/reject')
+  @HttpCode(HttpStatus.OK)
+  rejectRequest(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: RejectRequestDto,
+    @Headers('x-demo-user-id') actorId: string,
+  ) {
+    if (!actorId || !isUUID(actorId)) {
+      throw new BadRequestException('X-Demo-User-Id must be a valid UUID');
+    }
+
+    return this.requestsService.rejectRequest(id, actorId, dto.reason);
+  }
+
+  @Get(':id/events')
+  findEvents(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.requestsService.findEvents(id);
   }
 }
