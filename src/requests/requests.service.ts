@@ -30,7 +30,10 @@ export class RequestsService {
     const request = await this.repository.findOneBy({ id });
 
     if (!request) {
-      throw new NotFoundException(`Request ${id} not found`);
+      throw new NotFoundException({
+        code: 'REQUEST_NOT_FOUND',
+        message: '工单不存在',
+      });
     }
 
     return request;
@@ -50,7 +53,10 @@ export class RequestsService {
       const actor = await users.findOneBy({ id: actorId });
 
       if (!actor) {
-        throw new NotFoundException(`User ${actorId} not found`);
+        throw new NotFoundException({
+          code: 'USER_NOT_FOUND',
+          message: '操作用户不存在',
+        });
       }
 
       // 2. 创建 DRAFT 工单
@@ -91,19 +97,28 @@ export class RequestsService {
       const request = await requests.findOneBy({ id });
 
       if (!request) {
-        throw new NotFoundException(`Request ${id} not found`);
+        throw new NotFoundException({
+          code: 'REQUEST_NOT_FOUND',
+          message: '工单不存在',
+        });
       }
 
       // 2. 验证操作人
       const actor = await users.findOneBy({ id: actorId });
 
       if (!actor) {
-        throw new NotFoundException(`User ${actorId} not found`);
+        throw new NotFoundException({
+          code: 'USER_NOT_FOUND',
+          message: '操作用户不存在',
+        });
       }
 
       // 3. 检查当前状态
       if (request.status !== 'DRAFT') {
-        throw new ConflictException('Only DRAFT requests can be submitted');
+        throw new ConflictException({
+          code: 'INVALID_STATUS_TRANSITION',
+          message: '当前工单状态不允许执行此操作',
+        });
       }
 
       // 4. 更新状态
@@ -140,14 +155,20 @@ export class RequestsService {
       const request = await requests.findOneBy({ id });
 
       if (!request) {
-        throw new NotFoundException(`Request ${id} not found`);
+        throw new NotFoundException({
+          code: 'REQUEST_NOT_FOUND',
+          message: '工单不存在',
+        });
       }
 
       // 2. 确认操作人存在
       const actor = await users.findOneBy({ id: actorId });
 
       if (!actor) {
-        throw new NotFoundException(`User ${actorId} not found`);
+        throw new NotFoundException({
+          code: 'USER_NOT_FOUND',
+          message: '操作用户不存在',
+        });
       }
 
       // 3. 记录状态变更前的状态
@@ -166,10 +187,16 @@ export class RequestsService {
         const current = await requests.findOneBy({ id });
 
         if (!current) {
-          throw new NotFoundException(`Request ${id} not found`);
+          throw new NotFoundException({
+            code: 'REQUEST_NOT_FOUND',
+            message: '工单不存在',
+          });
         }
 
-        throw new ConflictException('Only PENDING requests can be approved');
+        throw new ConflictException({
+          code: 'INVALID_STATUS_TRANSITION',
+          message: '当前工单状态不允许执行此操作',
+        });
       }
 
       // 5. 只有状态更新成功，才能写入事件
@@ -188,7 +215,10 @@ export class RequestsService {
       const updatedRequest = await requests.findOneBy({ id });
 
       if (!updatedRequest) {
-        throw new NotFoundException(`Request ${id} not found`);
+        throw new NotFoundException({
+          code: 'REQUEST_NOT_FOUND',
+          message: '工单不存在',
+        });
       }
 
       return updatedRequest;
@@ -214,13 +244,19 @@ export class RequestsService {
       const request = await requests.findOneBy({ id });
 
       if (!request) {
-        throw new NotFoundException(`Request ${id} not found`);
+        throw new NotFoundException({
+          code: 'REQUEST_NOT_FOUND',
+          message: '工单不存在',
+        });
       }
 
       const actor = await users.findOneBy({ id: actorId });
 
       if (!actor) {
-        throw new NotFoundException(`User ${actorId} not found`);
+        throw new NotFoundException({
+          code: 'USER_NOT_FOUND',
+          message: '操作用户不存在',
+        });
       }
 
       const result = await requests
@@ -235,10 +271,16 @@ export class RequestsService {
         const current = await requests.findOneBy({ id });
 
         if (!current) {
-          throw new NotFoundException(`Request ${id} not found`);
+          throw new NotFoundException({
+            code: 'REQUEST_NOT_FOUND',
+            message: '工单不存在',
+          });
         }
 
-        throw new ConflictException('Only PENDING requests can be rejected');
+        throw new ConflictException({
+          code: 'INVALID_STATUS_TRANSITION',
+          message: '当前工单状态不允许执行此操作',
+        });
       }
 
       const event = events.create({
@@ -255,7 +297,10 @@ export class RequestsService {
       const updatedRequest = await requests.findOneBy({ id });
 
       if (!updatedRequest) {
-        throw new NotFoundException(`Request ${id} not found`);
+        throw new NotFoundException({
+          code: 'REQUEST_NOT_FOUND',
+          message: '工单不存在',
+        });
       }
 
       return updatedRequest;
@@ -267,7 +312,10 @@ export class RequestsService {
     const request = await this.repository.findOneBy({ id });
 
     if (!request) {
-      throw new NotFoundException(`Request ${id} not found`);
+      throw new NotFoundException({
+        code: 'REQUEST_NOT_FOUND',
+        message: '工单不存在',
+      });
     }
 
     return this.dataSource.getRepository(RequestEventEntity).find({

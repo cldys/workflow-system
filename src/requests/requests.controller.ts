@@ -16,6 +16,14 @@ import { RequestsService } from './requests.service';
 import { isUUID } from 'class-validator';
 import { RejectRequestDto } from './dto/reject-request.dto';
 
+const requestIdPipe = new ParseUUIDPipe({
+  exceptionFactory: () =>
+    new BadRequestException({
+      code: 'INVALID_UUID',
+      message: '工单 ID 必须是有效的 UUID',
+    }),
+});
+
 @Controller('requests')
 export class RequestsController {
   constructor(private readonly requestsService: RequestsService) {}
@@ -26,7 +34,7 @@ export class RequestsController {
   }
 
   @Get(':id')
-  findOne(@Param('id', new ParseUUIDPipe()) id: string) {
+  findOne(@Param('id', requestIdPipe) id: string) {
     return this.requestsService.findOne(id);
   }
 
@@ -36,7 +44,10 @@ export class RequestsController {
     @Headers('x-demo-user-id') actorId: string,
   ) {
     if (!actorId || !isUUID(actorId)) {
-      throw new BadRequestException('X-Demo-User-Id must be a valid UUID');
+      throw new BadRequestException({
+        code: 'INVALID_ACTOR_ID',
+        message: 'X-Demo-User-Id 必须是有效的 UUID',
+      });
     }
     return this.requestsService.createRequest(dto, actorId);
   }
@@ -44,13 +55,16 @@ export class RequestsController {
   @Post(':id/submit')
   @HttpCode(HttpStatus.OK)
   submitRequest(
-    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('id', requestIdPipe) id: string,
     @Headers('x-demo-user-id')
     actorId: string,
   ) {
     // 手动校验：先使用 @Headers() 获取值，再通过 if 判断并抛出异常。
     if (!actorId || !isUUID(actorId)) {
-      throw new BadRequestException('X-Demo-User-Id must be a valid UUID');
+      throw new BadRequestException({
+        code: 'INVALID_ACTOR_ID',
+        message: 'X-Demo-User-Id 必须是有效的 UUID',
+      });
     }
     return this.requestsService.submitRequest(id, actorId);
   }
@@ -58,11 +72,14 @@ export class RequestsController {
   @Post(':id/approve')
   @HttpCode(HttpStatus.OK)
   approveRequest(
-    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('id', requestIdPipe) id: string,
     @Headers('x-demo-user-id') actorId: string,
   ) {
     if (!actorId || !isUUID(actorId)) {
-      throw new BadRequestException('X-Demo-User-Id must be a valid UUID');
+      throw new BadRequestException({
+        code: 'INVALID_ACTOR_ID',
+        message: 'X-Demo-User-Id 必须是有效的 UUID',
+      });
     }
 
     return this.requestsService.approveRequest(id, actorId);
@@ -71,19 +88,22 @@ export class RequestsController {
   @Post(':id/reject')
   @HttpCode(HttpStatus.OK)
   rejectRequest(
-    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('id', requestIdPipe) id: string,
     @Body() dto: RejectRequestDto,
     @Headers('x-demo-user-id') actorId: string,
   ) {
     if (!actorId || !isUUID(actorId)) {
-      throw new BadRequestException('X-Demo-User-Id must be a valid UUID');
+      throw new BadRequestException({
+        code: 'INVALID_ACTOR_ID',
+        message: 'X-Demo-User-Id 必须是有效的 UUID',
+      });
     }
 
     return this.requestsService.rejectRequest(id, actorId, dto.reason);
   }
 
   @Get(':id/events')
-  findEvents(@Param('id', new ParseUUIDPipe()) id: string) {
+  findEvents(@Param('id', requestIdPipe) id: string) {
     return this.requestsService.findEvents(id);
   }
 }
