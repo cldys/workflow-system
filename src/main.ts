@@ -1,4 +1,5 @@
 import { ValidationPipe } from '@nestjs/common';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 
@@ -13,6 +14,9 @@ async function bootstrap() {
       transform: true,
     }),
   );
+
+  // 注册 Filter
+  app.useGlobalFilters(new HttpExceptionFilter());
 
   await app.listen(process.env.PORT ?? 3000);
 }
