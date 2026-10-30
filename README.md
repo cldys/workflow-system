@@ -35,7 +35,7 @@ PORT=3000
 JWT_SECRET=<填写随机生成的签名密钥>
 ```
 
-运行时环境变量优先于 `.env`。所有 `DB_*` 和非空 `JWT_SECRET` 都必须提供，数据库需预先存在。可用 `openssl rand -hex 32` 生成签名密钥并保存到本地 `.env`，不要提交或共享密钥。JWT 使用 HS256 签名，有效期为 1 小时；缺少或空白密钥会导致启动失败。
+运行时环境变量优先于 `.env`。所有 `DB_*` 和非空 `JWT_SECRET` 都必须提供，数据库需预先存在。可用 `openssl rand -hex 32` 生成签名密钥并保存到本地 `.env`，不要提交或共享密钥。JWT 使用 HS256 签名，有效期为 1800 秒（30 分钟），签发方为 `workflow-system`，接收方为 `workflow-system-api`；缺少或空白密钥会导致启动失败。
 
 使用仓库 Compose 启动本地 PostgreSQL：
 
@@ -92,7 +92,7 @@ npm run seed:dev
 
 脚本准备 `employee1@example.test`、`employee2@example.test` 两个员工和 `approver1@example.test`、`approver2@example.test` 两个审批人，均激活。四个账号共用该开发密码，但每个账号独立生成 Argon2id 带盐哈希。脚本不打印密码或哈希。
 
-仅允许本地 `127.0.0.1` / `localhost` 上的 `workflow` 数据库，且 `NODE_ENV` 不能是 `production`。重复执行会更新这四个账号的姓名、邮箱、密码哈希、角色和激活状态，保留已有 UUID；四个账号在同一事务中提交。Seed 不会由应用启动自动调用。激活的账号可通过 `POST /auth/login` 使用邮箱与开发密码登录，响应为 `{ "access_token": "..." }`，详细契约见 API 文档。
+仅允许本地 `127.0.0.1` / `localhost` 上的 `workflow` 数据库，且 `NODE_ENV` 不能是 `production`。重复执行会更新这四个账号的姓名、邮箱、密码哈希、角色和激活状态，保留已有 UUID；四个账号在同一事务中提交。Seed 不会由应用启动自动调用。激活的账号可通过 `POST /auth/login` 使用邮箱与开发密码登录，响应为 `{ "accessToken": "...", "tokenType": "Bearer", "expiresIn": 1800 }`，详细契约见 API 文档。
 
 ## 测试与检查
 

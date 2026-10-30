@@ -20,16 +20,29 @@
 成功返回 HTTP 200：
 
 ```json
-{ "access_token": "<JWT>" }
+{
+  "accessToken": "<JWT>",
+  "tokenType": "Bearer",
+  "expiresIn": 1800
+}
 ```
 
-Token 使用 HS256，有效期 1 小时，仅包含用户 ID（`sub`）、角色（`role`）及签发和到期时间（`iat`、`exp`），不包含密码或哈希。启动前须配置 `JWT_SECRET`。目前工单路由仍使用演示操作人请求头，尚未验证 Bearer Token。
+`expiresIn` 的单位为秒。Token 使用 HS256，有效期 1800 秒（30 分钟），仅包含用户 ID（`sub`）、签发和到期时间（`iat`、`exp`）、签发方（`iss`，值为 `workflow-system`）与接收方（`aud`，值为 `workflow-system-api`）。`iat`、`exp`、`iss`、`aud` 由签名配置自动生成。Token 不包含角色、用户资料、密码或哈希；后续将根据 `sub` 从数据库查询最新角色与激活状态。启动前须配置 `JWT_SECRET`。目前工单路由仍使用演示操作人请求头，尚未验证 Bearer Token。
 
-格式错误返回 400 / `VALIDATION_FAILED`。邮箱不存在、密码错误、账号未激活、密码哈希缺失或无效，均返回 401 / `INVALID_CREDENTIALS`，消息统一为“邮箱或密码不正确”。
+格式错误返回 400 / `VALIDATION_FAILED`。邮箱不存在、密码错误、账号未激活、密码哈希缺失或无效，均返回相同的认证失败响应：
+
+```json
+{
+  "statusCode": 401,
+  "code": "INVALID_CREDENTIALS",
+  "message": "邮箱或密码错误",
+  "path": "/auth/login"
+}
+```
 
 职责链为 `AuthController → AuthService → UsersService → TypeORM Repository → PostgreSQL`：Controller 接收请求，UsersService 通过参数化查询显式读取隐藏的密码哈希，AuthService 使用 Argon2 验证密码并签发 JWT。没有数据库结构变更。
 
-实现参考：[NestJS JWT 官方仓库](https://github.com/nestjs/jwt)、[ValidationPipe](https://docs.nestjs.com/techniques/validation)、[TypeORM QueryBuilder](https://typeorm.io/docs/query-builder/select-query-builder/)。
+实现参考：[NestJS JWT 官方仓库](https://github.com/nestjs/jwt)、[JWT 签名选项](https://github.com/auth0/node-jsonwebtoken)、[OWASP 认证失败通用响应](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#authentication-and-error-messages)、[ValidationPipe](https://docs.nestjs.com/techniques/validation)、[TypeORM QueryBuilder](https://typeorm.io/docs/query-builder/select-query-builder/)。
 
 ## 七个接口
 

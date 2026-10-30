@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import type { JwtModuleOptions } from '@nestjs/jwt';
 
 import { UsersModule } from '../users/users.module';
+import { ACCESS_TOKEN_TTL_SECONDS } from './auth.constants';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 
@@ -21,7 +22,12 @@ import { AuthService } from './auth.service';
 
         return {
           secret,
-          signOptions: { algorithm: 'HS256', expiresIn: '1h' },
+          signOptions: {
+            algorithm: 'HS256',
+            expiresIn: ACCESS_TOKEN_TTL_SECONDS,
+            issuer: 'workflow-system',
+            audience: 'workflow-system-api',
+          },
         };
       },
     }),

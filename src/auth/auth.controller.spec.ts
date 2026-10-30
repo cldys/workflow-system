@@ -13,6 +13,7 @@ import { AuthModule } from './auth.module';
 describe('AuthController', () => {
   let app: INestApplication;
   let passwordHash: string;
+  let user: Partial<UserEntity>;
   const secret = 'auth-tests-only-secret-not-for-production';
   const credentials = { email: 'Employee@example.test', password: 'x' };
   const queryBuilder = {
@@ -47,13 +48,14 @@ describe('AuthController', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    queryBuilder.getOne.mockResolvedValue({
+    user = {
       id: '550e8400-e29b-41d4-a716-446655440000',
       email: credentials.email,
       passwordHash,
       role: 'EMPLOYEE',
       isActive: true,
-    });
+    };
+    queryBuilder.getOne.mockResolvedValue(user);
   });
 
   afterAll(async () => {
@@ -66,18 +68,38 @@ describe('AuthController', () => {
       .send(credentials)
       .expect(200);
 
-    expect(response.body).toEqual({ access_token: expect.any(String) });
-    const payload = await new JwtService({ secret }).verifyAsync(
-      response.body.access_token as string,
-      { algorithms: ['HS256'] },
-    );
+    expect(response.body).toEqual({
+      accessToken: expect.any(String),
+      tokenType: 'Bearer',
+      expiresIn: 1800,
+    });
+    const payload = await new JwtService({ secret }).verifyAsync<{
+      sub: string;
+      iat: number;
+      exp: number;
+      iss: string;
+      aud: string;
+    }>(response.body.accessToken as string, {
+      algorithms: ['HS256'],
+      issuer: 'workflow-system',
+      audience: 'workflow-system-api',
+    });
     expect(payload).toEqual({
       sub: '550e8400-e29b-41d4-a716-446655440000',
-      role: 'EMPLOYEE',
+      iss: 'workflow-system',
+      aud: 'workflow-system-api',
       iat: expect.any(Number),
       exp: expect.any(Number),
     });
-    expect(payload.exp - payload.iat).toBe(3600);
+    expect(payload.exp - payload.iat).toBe(response.body.expiresIn);
+    await expect(
+      new JwtService({ secret }).verifyAsync(
+        response.body.accessToken as string,
+        {
+          clockTimestamp: payload.exp,
+        },
+      ),
+    ).rejects.toThrow('jwt expired');
     expect(queryBuilder.addSelect).toHaveBeenCalledWith('user.passwordHash');
     expect(queryBuilder.where).toHaveBeenCalledWith(
       'LOWER(user.email) = :email',
@@ -122,18 +144,20 @@ describe('AuthController', () => {
       .expect({
         statusCode: 401,
         code: 'INVALID_CREDENTIALS',
-        message: '邮箱或密码不正确',
+        message: '邮箱或密码错误',
         path: '/auth/login',
       });
   });
 
   it.each([
-    null,
-    { isActive: false, passwordHash: 'unused' },
-    { isActive: true, passwordHash: null },
-    { isActive: true, passwordHash: 'invalid-hash' },
-  ])('returns the same 401 for an unavailable account: %p', async (user) => {
-    queryBuilder.getOne.mockResolvedValueOnce(user);
+    ['missing account', null],
+    ['inactive account with the correct password', { isActive: false }],
+    ['missing password hash', { passwordHash: null }],
+    ['invalid password hash', { passwordHash: 'invalid-hash' }],
+  ] as const)('returns the same 401 for %s', async (_, overrides) => {
+    queryBuilder.getOne.mockResolvedValueOnce(
+      overrides === null ? null : { ...user, ...overrides },
+    );
     const sign = jest.spyOn(app.get(JwtService), 'signAsync');
     try {
       await request(app.getHttpServer())
@@ -143,7 +167,7 @@ describe('AuthController', () => {
         .expect({
           statusCode: 401,
           code: 'INVALID_CREDENTIALS',
-          message: '邮箱或密码不正确',
+          message: '邮箱或密码错误',
           path: '/auth/login',
         });
       expect(sign).not.toHaveBeenCalled();
