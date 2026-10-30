@@ -1,193 +1,111 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# 工单审批系统
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+基于 NestJS、TypeScript、PostgreSQL 和 TypeORM 的工单 API。支持创建、列表、详情、提交、审批通过、审批驳回和历史查询；状态修改与事件记录使用同一事务，条件 UPDATE 防止重复提交或重复决策。
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+当前使用 `X-Demo-User-Id` 模拟操作人，尚无身份认证、角色授权、用户管理接口、工单修改或删除接口。列表没有分页和默认排序。
 
-## Description
+## 文档
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- [业务规则与状态机](docs/business-rules.md)
+- [七个 API 契约与错误码](docs/API.md)
+- [数据库、关系与迁移](docs/database.md)
+- [第二周工程记录与验证结果](docs/week-2-engineering.md)
 
-## Project setup
+## 环境与启动
+
+本项目验证环境为 Node.js 24、npm 11、PostgreSQL 17。在项目根目录执行：
 
 ```bash
-$ npm install
+npm ci
 ```
 
-## Compile and run the project
-
-Before starting the application, configure an existing PostgreSQL database.
-Create a `.env` file in the project root with your actual connection settings:
+创建本地 `.env`（已被 Git 忽略），使用自己的数据库密码：
 
 ```dotenv
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=your_database_user
-DB_PASSWORD=your_database_password
-DB_NAME=your_existing_database
+DB_HOST=127.0.0.1
+DB_PORT=5433
+DB_USER=workflow
+DB_PASSWORD=<填写本地数据库密码>
+DB_NAME=workflow
+PORT=3000
 ```
 
-These are placeholders, not database provisioning commands. Use the database
-and user from the existing SQL setup. The `.env` file is ignored by Git.
-Alternatively, provide the same variables through the runtime environment;
-runtime values take precedence over `.env` values.
+运行时环境变量优先于 `.env`。所有 `DB_*` 都必须提供，数据库需预先存在。
 
-`AppModule` loads these settings with `ConfigModule.forRoot({ isGlobal: true })`.
-`TypeOrmModule.forRootAsync()` injects `ConfigService` into its factory and
-builds the PostgreSQL connection options. `getOrThrow()` rejects missing
-variables at startup, and `Number()` converts `DB_PORT` from a string to a
-number. Set it to a valid PostgreSQL port; `getOrThrow()` does not validate
-empty strings or port ranges.
-
-`autoLoadEntities: true` includes entities registered by feature modules with
-`TypeOrmModule.forFeature([YourEntity])`; it does not scan the database or
-generate entity classes. `synchronize: false` prevents automatic schema
-changes. Existing tables must already be created with SQL, and future entities
-must match their table names, column names, types, primary keys, nullability,
-defaults, and relationships.
-
-See the NestJS [Configuration](https://docs.nestjs.com/techniques/configuration)
-and [TypeORM](https://docs.nestjs.com/techniques/database) documentation.
+使用仓库 Compose 启动本地 PostgreSQL：
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+docker compose up -d db
 ```
 
-The application initializes its database connection before it starts serving
-HTTP requests. A successful `Nest application successfully started` message
-confirms that startup, including database initialization, completed. It does
-not verify that future entity mappings match the existing tables.
-
-If startup fails, check the error:
-
-- `Configuration key "DB_..." does not exist`: provide the named `DB_*` variable.
-- `ECONNREFUSED`: check that PostgreSQL is running and the host/port are correct.
-- `password authentication failed`: check the database user and password.
-- `database ... does not exist`: point `DB_NAME` to the existing database.
-
-## Requests API
-
-`POST /requests` requires a `title` and a `createdById` UUID belonging to an
-existing row in `users`; `description` is optional. Until authentication is
-available, the client supplies `createdById` in the request body. Creation
-returns `201` with status `DRAFT` and the creator ID. Missing or malformed
-`createdById` returns `400`; a valid UUID with no matching user returns `404`.
-
-`RequestsModule` registers `RequestEntity`, `UserEntity`, and
-`RequestEventEntity` so TypeORM can resolve all their relationships. With
-`synchronize: false`, the existing database must already contain the matching
-`users`, `requests` (including `created_by`), and `request_events` schema.
-
-## Run tests
+Compose 新卷会创建 `workflow` 数据库和同名用户，端口只绑定本机 `5433`。已有卷不会因修改环境变量而更改数据库密码；若已有实例，使用其实际连接配置。启动后等待数据库就绪，再执行迁移：
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npm run migration:run
+npm run migration:show
+npm run start:dev
 ```
 
-Unit tests do not require PostgreSQL. The e2e suite imports `AppModule`, so it
-requires the database settings above and a reachable PostgreSQL instance.
+迁移可直接从空数据库创建三张业务表；重复执行不会重复应用已记录的迁移。保持 `synchronize: false`，启动应用不会自动创建表，也不会自动运行迁移。不要手工重复执行关系迁移 SQL。已有数据库的接入方式见数据库文档。
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+编译运行：
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+npm run build
+npm run start:prod
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+检查 `http://localhost:3000/` 返回 `Hello World!`，`GET /requests` 返回数组。
 
-## Observability
+## 第一个业务请求
 
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
+在数据库 SQL 客户端执行以下语句创建演示用户，记下返回的 UUID；系统没有创建用户的 HTTP 接口：
 
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
+```sql
+INSERT INTO users (display_name) VALUES ('演示操作人') RETURNING id;
+```
 
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
-
-To add it to this project, run this and approve the code it prints at [observe.nestjs.com/link](https://observe.nestjs.com/link) - signing up for free if you have no account:
+将返回值设为 `ACTOR_ID`，然后发送请求：
 
 ```bash
-$ npx @nestjs/observe link
+export ACTOR_ID='<上一步返回的 UUID>'
+curl -i http://localhost:3000/requests \
+  -H 'Content-Type: application/json' \
+  -H "X-Demo-User-Id: $ACTOR_ID" \
+  -d '{"title":"采购申请","description":"办公用品"}'
 ```
 
-It installs `@nestjs/observe`, wires it into `AppModule` and `main.ts`, and writes the app key and secret into `.env`, which every `nest start` script (`start`, `start:dev`, `start:debug`) then loads. In production, set `OBSERVE_APP_KEY` and `OBSERVE_APP_SECRET` in the environment instead.
+预期 `201`、状态 `DRAFT`。操作人通过请求头传递，不能在请求体提交 `createdById`；完整提交、审批和驳回示例见 API 文档。
 
-Or do it by hand:
+## 测试与检查
+
+单元和 Controller 测试使用 Mock，不依赖 PostgreSQL：
 
 ```bash
-$ npm install @nestjs/observe
+npm test -- --runInBand
 ```
 
-Then follow the [setup guide](https://docs.nestjs.com/observability/sdk) - it takes a single import and an app key.
+真实数据库 e2e 只允许连接名为 `workflow_test` 的数据库。在本地 Compose 数据库就绪后，首次创建并迁移测试库：
 
-The free plan needs no payment details and covers 300,000 events a month. You can also browse the [live demo](https://www.observe-demo.nestjs.com/dashboard) first - the whole dashboard over a busy service's data, with nothing to install.
+```bash
+docker compose exec db createdb -U workflow workflow_test
+DB_NAME=workflow_test npm run migration:run
+DB_NAME=workflow_test npm run test:e2e -- --runInBand
+npm run lint
+npm run build
+DB_NAME=workflow_test npm run test:e2e -- --runInBand
+```
 
-## Resources
+已存在的测试库跳过 `createdb`。外部 PostgreSQL 可用 SQL 客户端创建同名空库，迁移和测试时覆盖对应连接变量。测试账号需有测试库建表、修改表及数据读写权限。
 
-Check out a few resources that may come in handy when working with NestJS:
+e2e 覆盖两条完整业务流程、9 种非法转换、真实 CHECK 故障回滚、20 轮并发决策和20 轮并发提交，并清理本次创建的用户、工单和事件。故障注入测试预期输出约束错误日志，但客户端仅收到通用 500；临时约束在 `finally` 中移除。不要将测试连接指向业务库。
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observe](https://observe.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+## 排错与配置安全
 
-## Support
+- 连接拒绝：检查 PostgreSQL 状态、主机和端口。
+- 认证失败：检查本地 `.env` 与已有数据库账号，Compose 不会重置已有卷密码。
+- 数据库不存在：先创建目标数据库。
+- 表不存在：对正确数据库运行 `npm run migration:run`。
+- `USER_NOT_FOUND`：请求头 UUID 对应的用户必须先存在。
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+不要提交 `.env`、数据库备份、密码或密钥。Compose 从环境变量读取密码。历史迁移用户只用于旧数据归属，不是真实员工。详情见数据库文档。

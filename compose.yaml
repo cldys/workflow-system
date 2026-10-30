@@ -3,7 +3,7 @@ services:
     image: postgres:17
     environment:
       POSTGRES_USER: workflow
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
       POSTGRES_DB: workflow
     ports:
       - '127.0.0.1:5433:5432'

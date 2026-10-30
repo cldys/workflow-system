@@ -21,7 +21,7 @@ export default new DataSource({
   database: requiredEnv('DB_NAME'),
 
   entities: ['src/**/*.entity.ts'],
-  migrations: ['src/database/migrations/1793104789066-AddWorkflowRelations.ts'],
+  migrations: ['src/database/migrations/*.ts'],
 
   synchronize: false,
 });
