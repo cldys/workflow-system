@@ -153,14 +153,21 @@ describe('RequestsService', () => {
   it('submits a DRAFT request and saves its transition event', async () => {
     const draft = { id, status: 'DRAFT' };
     const saved = { id, status: 'PENDING' };
-    repository.findOneBy.mockResolvedValueOnce(draft);
-    repository.save.mockResolvedValueOnce(saved);
+    repository.findOneBy
+      .mockResolvedValueOnce(draft)
+      .mockResolvedValueOnce(saved);
 
     await expect(service.submitRequest(id, actorId)).resolves.toEqual(saved);
 
-    expect(repository.save).toHaveBeenCalledTimes(1);
-    expect(repository.save).toHaveBeenCalledWith(saved);
-    expect(queryBuilder.execute).not.toHaveBeenCalled();
+    expect(repository.save).not.toHaveBeenCalled();
+    expect(queryBuilder.update).toHaveBeenCalledWith(RequestEntity);
+    expect(queryBuilder.set).toHaveBeenCalledWith({ status: 'PENDING' });
+    expect(queryBuilder.where).toHaveBeenCalledWith('id = :id', { id });
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith('status = :status', {
+      status: 'DRAFT',
+    });
+    expect(queryBuilder.execute).toHaveBeenCalledTimes(1);
+    expect(repository.findOneBy).toHaveBeenCalledTimes(2);
     expect(eventsRepository.save).toHaveBeenCalledTimes(1);
     expect(eventsRepository.save).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -275,11 +282,12 @@ describe('RequestsService', () => {
     },
   );
 
-  it.each(['approveRequest', 'rejectRequest'] as const)(
+  it.each(transitions)(
     '%s reports a conflict when a concurrent transition wins',
     async (method) => {
+      const fromStatus = method === 'submitRequest' ? 'DRAFT' : 'PENDING';
       repository.findOneBy
-        .mockResolvedValueOnce({ id, status: 'PENDING' })
+        .mockResolvedValueOnce({ id, status: fromStatus })
         .mockResolvedValueOnce({ id, status: 'APPROVED' });
       queryBuilder.execute.mockResolvedValueOnce({ affected: 0 });
 
@@ -291,7 +299,7 @@ describe('RequestsService', () => {
       });
       expect(queryBuilder.execute).toHaveBeenCalledTimes(1);
       expect(queryBuilder.andWhere).toHaveBeenCalledWith('status = :status', {
-        status: 'PENDING',
+        status: fromStatus,
       });
       expect(repository.findOneBy).toHaveBeenCalledTimes(2);
       expect(repository.save).not.toHaveBeenCalled();
@@ -299,11 +307,14 @@ describe('RequestsService', () => {
     },
   );
 
-  it.each(['approveRequest', 'rejectRequest'] as const)(
+  it.each(transitions)(
     '%s reports REQUEST_NOT_FOUND when the request disappears during update',
     async (method) => {
       repository.findOneBy
-        .mockResolvedValueOnce({ id })
+        .mockResolvedValueOnce({
+          id,
+          status: method === 'submitRequest' ? 'DRAFT' : 'PENDING',
+        })
         .mockResolvedValueOnce(null);
       queryBuilder.execute.mockResolvedValueOnce({ affected: 0 });
 
@@ -318,11 +329,14 @@ describe('RequestsService', () => {
     },
   );
 
-  it.each(['approveRequest', 'rejectRequest'] as const)(
+  it.each(transitions)(
     '%s reports REQUEST_NOT_FOUND when the final lookup fails',
     async (method) => {
       repository.findOneBy
-        .mockResolvedValueOnce({ id })
+        .mockResolvedValueOnce({
+          id,
+          status: method === 'submitRequest' ? 'DRAFT' : 'PENDING',
+        })
         .mockResolvedValueOnce(null);
 
       await expect(

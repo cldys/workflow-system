@@ -121,18 +121,37 @@ export class RequestsService {
         });
       }
 
-      // 4. 更新状态
-      const fromStatus = request.status;
-      request.status = 'PENDING';
+      // 4. 原子地从 DRAFT 更新，防止并发提交重复成功
+      const result = await requests
+        .createQueryBuilder()
+        .update(RequestEntity)
+        .set({ status: 'PENDING' })
+        .where('id = :id', { id })
+        .andWhere('status = :status', { status: 'DRAFT' })
+        .execute();
 
-      const savedRequest = await requests.save(request);
+      if (result.affected !== 1) {
+        const current = await requests.findOneBy({ id });
+
+        if (!current) {
+          throw new NotFoundException({
+            code: 'REQUEST_NOT_FOUND',
+            message: '工单不存在',
+          });
+        }
+
+        throw new ConflictException({
+          code: 'INVALID_STATUS_TRANSITION',
+          message: '当前工单状态不允许执行此操作',
+        });
+      }
 
       // 5. 记录状态变化
       const event = events.create({
-        requestId: savedRequest.id,
+        requestId: id,
         actorId: actor.id,
         action: 'SUBMITTED',
-        fromStatus,
+        fromStatus: 'DRAFT',
         toStatus: 'PENDING',
         note: null,
       });
@@ -140,7 +159,16 @@ export class RequestsService {
       await events.save(event);
 
       // 6. 返回更新后的工单
-      return savedRequest;
+      const updatedRequest = await requests.findOneBy({ id });
+
+      if (!updatedRequest) {
+        throw new NotFoundException({
+          code: 'REQUEST_NOT_FOUND',
+          message: '工单不存在',
+        });
+      }
+
+      return updatedRequest;
     });
   }
 
@@ -171,10 +199,7 @@ export class RequestsService {
         });
       }
 
-      // 3. 记录状态变更前的状态
-      const fromStatus = request.status;
-
-      // 4. 原子地更新状态，避免竞争请求重复成功
+      // 3. 原子地更新状态，避免竞争请求重复成功
       const result = await requests
         .createQueryBuilder()
         .update(RequestEntity)

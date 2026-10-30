@@ -3,7 +3,7 @@
 import 'dotenv/config';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { DataSource } from 'typeorm';
+import { DataSource, In } from 'typeorm';
 import { isUUID } from 'class-validator';
 import request from 'supertest';
 import type { App } from 'supertest/types';
@@ -18,6 +18,7 @@ describe('Requests Workflow (e2e)', () => {
   let app: INestApplication<App>;
   let db: DataSource;
   let actorId: string;
+  let reviewerId: string;
 
   beforeAll(async () => {
     // 防止误操作开发数据库
@@ -58,6 +59,10 @@ describe('Requests Workflow (e2e)', () => {
       users.create({ displayName: 'Workflow e2e actor' }),
     );
     actorId = actor.id;
+    const reviewer = await users.save(
+      users.create({ displayName: 'Workflow e2e reviewer' }),
+    );
+    reviewerId = reviewer.id;
   });
 
   afterAll(async () => {
@@ -65,10 +70,11 @@ describe('Requests Workflow (e2e)', () => {
       try {
         // 仅清理本次运行创建的数据，不清空表或删除已有测试数据。
         if (actorId) {
+          const actorIds = reviewerId ? [actorId, reviewerId] : [actorId];
           await db.transaction(async (manager) => {
-            await manager.delete(RequestEventEntity, { actorId });
-            await manager.delete(RequestEntity, { createdById: actorId });
-            await manager.delete(UserEntity, { id: actorId });
+            await manager.delete(RequestEventEntity, { actorId: In(actorIds) });
+            await manager.delete(RequestEntity, { createdById: In(actorIds) });
+            await manager.delete(UserEntity, { id: In(actorIds) });
           });
         }
       } finally {
@@ -236,6 +242,136 @@ describe('Requests Workflow (e2e)', () => {
         );
       }
       await verifyNoSideEffects(draft.id, action, status);
+    },
+  );
+
+  // 每轮使用新工单；Promise.all 发起真实 HTTP 竞争，不预设哪一方获胜。
+  it.each(Array.from({ length: 20 }, (_, index) => index + 1))(
+    'concurrent approval and rejection produce one decision (round %i)',
+    async () => {
+      const draft = await createDraft();
+      await transition(draft.id, 'submit');
+      const before = await db.getRepository(RequestEventEntity).find({
+        where: { requestId: draft.id },
+        order: { createdAt: 'ASC', id: 'ASC' },
+      });
+      expect(before.map((event) => event.action)).toEqual([
+        'CREATED',
+        'SUBMITTED',
+      ]);
+      expect(reviewerId).not.toBe(actorId);
+
+      const reason = '预算不足';
+      const [approveResult, rejectResult] = await Promise.all([
+        request(app.getHttpServer())
+          .post(`/requests/${draft.id}/approve`)
+          .set('X-Demo-User-Id', actorId)
+          .send({}),
+        request(app.getHttpServer())
+          .post(`/requests/${draft.id}/reject`)
+          .set('X-Demo-User-Id', reviewerId)
+          .send({ reason }),
+      ]);
+      expect(
+        [approveResult.status, rejectResult.status].sort((a, b) => a - b),
+      ).toEqual([200, 409]);
+
+      const approved = approveResult.status === 200;
+      const winner = approved ? approveResult : rejectResult;
+      const loser = approved ? rejectResult : approveResult;
+      const status = approved ? 'APPROVED' : 'REJECTED';
+      expect(loser.body).toMatchObject({
+        statusCode: 409,
+        code: 'INVALID_STATUS_TRANSITION',
+      });
+      expect(winner.body).toMatchObject({ id: draft.id, status });
+
+      const finalRequest = await request(app.getHttpServer())
+        .get(`/requests/${draft.id}`)
+        .expect(200);
+      expect(finalRequest.body).toMatchObject({ id: draft.id, status });
+      const history = await request(app.getHttpServer())
+        .get(`/requests/${draft.id}/events`)
+        .expect(200);
+      const events = history.body as RequestEventEntity[];
+      expect(events).toHaveLength(3);
+      expect(events.map((event) => event.action)).toEqual([
+        'CREATED',
+        'SUBMITTED',
+        status,
+      ]);
+      const decisions = events.filter((event) =>
+        ['APPROVED', 'REJECTED'].includes(event.action),
+      );
+      expect(decisions).toHaveLength(1);
+      expect(decisions[0]).toMatchObject({
+        requestId: draft.id,
+        actorId: approved ? actorId : reviewerId,
+        action: status,
+        fromStatus: 'PENDING',
+        toStatus: status,
+        note: approved ? null : reason,
+      });
+
+      // 独立查询数据库，核对 HTTP 返回值并确认原有事件没有被改写。
+      const saved = await db
+        .getRepository(RequestEntity)
+        .findOneByOrFail({ id: draft.id });
+      const savedEvents = await db.getRepository(RequestEventEntity).find({
+        where: { requestId: draft.id },
+        order: { createdAt: 'ASC', id: 'ASC' },
+      });
+      expect(saved.status).toBe(status);
+      expect(savedEvents.slice(0, 2)).toEqual(before);
+      expect(JSON.parse(JSON.stringify(savedEvents))).toEqual(events);
+    },
+  );
+
+  it.each(Array.from({ length: 20 }, (_, index) => index + 1))(
+    'concurrent submissions produce one SUBMITTED event (round %i)',
+    async () => {
+      const draft = await createDraft();
+      const results = await Promise.all(
+        [actorId, reviewerId].map((submitterId) =>
+          request(app.getHttpServer())
+            .post(`/requests/${draft.id}/submit`)
+            .set('X-Demo-User-Id', submitterId)
+            .send({}),
+        ),
+      );
+      expect(
+        results.map((result) => result.status).sort((a, b) => a - b),
+      ).toEqual([200, 409]);
+      const winnerIndex = results.findIndex((result) => result.status === 200);
+      expect(results[winnerIndex].body).toMatchObject({
+        id: draft.id,
+        status: 'PENDING',
+      });
+      expect(results[1 - winnerIndex].body).toMatchObject({
+        statusCode: 409,
+        code: 'INVALID_STATUS_TRANSITION',
+      });
+
+      const saved = await db
+        .getRepository(RequestEntity)
+        .findOneByOrFail({ id: draft.id });
+      const events = await db.getRepository(RequestEventEntity).find({
+        where: { requestId: draft.id },
+        order: { createdAt: 'ASC', id: 'ASC' },
+      });
+      expect(saved.status).toBe('PENDING');
+      expect(events).toHaveLength(2);
+      expect(events.map((event) => event.action)).toEqual([
+        'CREATED',
+        'SUBMITTED',
+      ]);
+      expect(events[1]).toMatchObject({
+        requestId: draft.id,
+        actorId: [actorId, reviewerId][winnerIndex],
+        fromStatus: 'DRAFT',
+        toStatus: 'PENDING',
+        note: null,
+      });
     },
   );
 
