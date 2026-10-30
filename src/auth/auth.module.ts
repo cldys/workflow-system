@@ -4,7 +4,6 @@ import { JwtModule } from '@nestjs/jwt';
 import type { JwtModuleOptions } from '@nestjs/jwt';
 
 import { UsersModule } from '../users/users.module';
-import { ACCESS_TOKEN_TTL_SECONDS } from './auth.constants';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 
@@ -15,18 +14,18 @@ import { AuthService } from './auth.service';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService): JwtModuleOptions => {
-        const secret = config.getOrThrow<string>('JWT_SECRET');
-        if (!secret.trim()) {
-          throw new Error('JWT_SECRET 不能为空');
+        const secret = config.get<string>('JWT_SECRET');
+        if (!secret?.trim() || Buffer.byteLength(secret, 'utf8') < 32) {
+          throw new Error('JWT_SECRET 未配置或长度不足 32 字节');
         }
 
         return {
           secret,
           signOptions: {
             algorithm: 'HS256',
-            expiresIn: ACCESS_TOKEN_TTL_SECONDS,
+            expiresIn: '30m',
             issuer: 'workflow-system',
-            audience: 'workflow-system-api',
+            audience: 'workflow-api',
           },
         };
       },

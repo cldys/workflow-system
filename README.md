@@ -35,7 +35,9 @@ PORT=3000
 JWT_SECRET=<填写随机生成的签名密钥>
 ```
 
-运行时环境变量优先于 `.env`。所有 `DB_*` 和非空 `JWT_SECRET` 都必须提供，数据库需预先存在。可用 `openssl rand -hex 32` 生成签名密钥并保存到本地 `.env`，不要提交或共享密钥。JWT 使用 HS256 签名，有效期为 1800 秒（30 分钟），签发方为 `workflow-system`，接收方为 `workflow-system-api`；缺少或空白密钥会导致启动失败。
+运行时环境变量优先于 `.env`。所有 `DB_*` 和至少 32 个 UTF-8 字节的非空白 `JWT_SECRET` 都必须提供，数据库需预先存在。可用 `openssl rand -base64 48` 生成签名密钥并保存到本地 `.env`，不要提交或共享密钥。JWT 使用 HS256 签名，有效期为 1800 秒（30 分钟），签发方为 `workflow-system`，接收方为 `workflow-api`；缺少、空白或不足 32 字节的密钥会导致启动失败。
+
+[`.env.example`](.env.example) 提供配置项，密码和密钥留空。32 字节检查只是最低配置防护，真实密钥应由安全随机源生成。`JwtModule.registerAsync()` 通过 `ConfigService` 读取密钥，`AppModule` 已注册 `AuthModule`；无需重复导入 `UsersModule`。
 
 使用仓库 Compose 启动本地 PostgreSQL：
 

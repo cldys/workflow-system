@@ -27,7 +27,7 @@
 }
 ```
 
-`expiresIn` 的单位为秒。Token 使用 HS256，有效期 1800 秒（30 分钟），仅包含用户 ID（`sub`）、签发和到期时间（`iat`、`exp`）、签发方（`iss`，值为 `workflow-system`）与接收方（`aud`，值为 `workflow-system-api`）。`iat`、`exp`、`iss`、`aud` 由签名配置自动生成。Token 不包含角色、用户资料、密码或哈希；后续将根据 `sub` 从数据库查询最新角色与激活状态。启动前须配置 `JWT_SECRET`。目前工单路由仍使用演示操作人请求头，尚未验证 Bearer Token。
+`expiresIn` 的单位为秒。Token 使用 HS256，有效期 1800 秒（30 分钟），仅包含用户 ID（`sub`）、签发和到期时间（`iat`、`exp`）、签发方（`iss`，值为 `workflow-system`）与接收方（`aud`，值为 `workflow-api`）。`iat`、`exp`、`iss`、`aud` 由签名配置自动生成。Token 不包含角色、用户资料、密码或哈希；后续将根据 `sub` 从数据库查询最新角色与激活状态。启动前须配置 `JWT_SECRET`。目前工单路由仍使用演示操作人请求头，尚未验证 Bearer Token。
 
 格式错误返回 400 / `VALIDATION_FAILED`。邮箱不存在、密码错误、账号未激活、密码哈希缺失或无效，均返回相同的认证失败响应：
 
@@ -43,6 +43,37 @@
 职责链为 `AuthController → AuthService → UsersService → TypeORM Repository → PostgreSQL`：Controller 接收请求，UsersService 通过参数化查询显式读取隐藏的密码哈希，AuthService 使用 Argon2 验证密码并签发 JWT。没有数据库结构变更。
 
 实现参考：[NestJS JWT 官方仓库](https://github.com/nestjs/jwt)、[JWT 签名选项](https://github.com/auth0/node-jsonwebtoken)、[OWASP 认证失败通用响应](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#authentication-and-error-messages)、[ValidationPipe](https://docs.nestjs.com/techniques/validation)、[TypeORM QueryBuilder](https://typeorm.io/docs/query-builder/select-query-builder/)。
+
+### 本地登录验收
+
+配置 `.env` 中的 `JWT_SECRET`（使用 `openssl rand -base64 48` 生成，至少 32 个 UTF-8 字节），完成迁移和开发账号 Seed，再运行 `npm run build`、`npm run lint`、`npm run start:dev`。Nest 应正常监听 `http://localhost:3000` 并注册 `POST /auth/login`。
+
+另开终端，用本地 `DEV_SEED_PASSWORD` 测试正确密码，避免将真实密码写入命令：
+
+```bash
+node -r dotenv/config -e \
+  'process.stdout.write(JSON.stringify({email: "employee1@example.test", password: process.env.DEV_SEED_PASSWORD}))' |
+curl -i http://localhost:3000/auth/login \
+  -H 'Content-Type: application/json' --data-binary @-
+```
+
+预期 HTTP 200，响应仅含 `accessToken`、`tokenType: "Bearer"`、`expiresIn: 1800`。不要把实际 Token 复制到文档或提交记录。
+
+继续测试错误密码、不存在的用户和邮箱格式错误：
+
+```bash
+curl -i http://localhost:3000/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"employee1@example.test","password":"wrong-password"}'
+curl -i http://localhost:3000/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"unknown@example.test","password":"wrong-password"}'
+curl -i http://localhost:3000/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"invalid-email","password":"password123"}'
+```
+
+预期依次为 401、401、400。两个 401 的完整响应应相同；400 的 `code` 为 `VALIDATION_FAILED`。启动报密钥错误时检查 `.env`；缺少 `users` 表或 `password_hash` 列时检查连接目标及迁移记录；正确密码返回 401 时检查 Seed 密码、`is_active` 和登录查询的 `addSelect`。
 
 ## 七个接口
 

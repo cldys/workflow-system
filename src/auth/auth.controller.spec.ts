@@ -31,7 +31,7 @@ describe('AuthController', () => {
       .overrideProvider(getRepositoryToken(UserEntity))
       .useValue(repository)
       .overrideProvider(ConfigService)
-      .useValue({ getOrThrow: () => secret })
+      .useValue({ get: () => secret })
       .compile();
 
     app = module.createNestApplication();
@@ -82,12 +82,12 @@ describe('AuthController', () => {
     }>(response.body.accessToken as string, {
       algorithms: ['HS256'],
       issuer: 'workflow-system',
-      audience: 'workflow-system-api',
+      audience: 'workflow-api',
     });
     expect(payload).toEqual({
       sub: '550e8400-e29b-41d4-a716-446655440000',
       iss: 'workflow-system',
-      aud: 'workflow-system-api',
+      aud: 'workflow-api',
       iat: expect.any(Number),
       exp: expect.any(Number),
     });
@@ -176,8 +176,8 @@ describe('AuthController', () => {
     }
   });
 
-  it.each([undefined, '', '   '])(
-    'rejects missing or blank JWT_SECRET: %p',
+  it.each([undefined, '', ' '.repeat(32), 'x'.repeat(31), '密'.repeat(10)])(
+    'rejects missing, blank or short JWT_SECRET: %p',
     async (secretValue) => {
       await expect(
         Test.createTestingModule({ imports: [AuthModule] })
@@ -185,15 +185,24 @@ describe('AuthController', () => {
           .useValue(repository)
           .overrideProvider(ConfigService)
           .useValue({
-            getOrThrow: () => {
-              if (secretValue === undefined) {
-                throw new Error('JWT_SECRET is required');
-              }
-              return secretValue;
-            },
+            get: () => secretValue,
           })
           .compile(),
-      ).rejects.toThrow('JWT_SECRET');
+      ).rejects.toThrow('JWT_SECRET 未配置或长度不足 32 字节');
+    },
+  );
+
+  it.each(['x'.repeat(32), '密'.repeat(11)])(
+    'accepts a JWT_SECRET of at least 32 UTF-8 bytes: %p',
+    async (secretValue) => {
+      const module = await Test.createTestingModule({ imports: [AuthModule] })
+        .overrideProvider(getRepositoryToken(UserEntity))
+        .useValue(repository)
+        .overrideProvider(ConfigService)
+        .useValue({ get: () => secretValue })
+        .compile();
+
+      await module.close();
     },
   );
 });
