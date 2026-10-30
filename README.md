@@ -10,6 +10,7 @@
 - [七个 API 契约与错误码](docs/API.md)
 - [数据库、关系与迁移](docs/database.md)
 - [任务 B：用户认证字段迁移与实库验收](docs/task-b-user-auth.md)
+- [任务 C：开发账号 Seed 与实库验收](docs/task-c-dev-users.md)
 - [第二周工程记录与验证结果](docs/week-2-engineering.md)
 
 ## 环境与启动
@@ -77,6 +78,18 @@ curl -i http://localhost:3000/requests \
 ```
 
 预期 `201`、状态 `DRAFT`。操作人通过请求头传递，不能在请求体提交 `createdById`；完整提交、审批和驳回示例见 API 文档。
+
+## 开发测试账号
+
+Migration 负责修改数据库结构，Seed 负责初始化开发数据。先执行迁移，再在本地 `.env` 添加 `DEV_SEED_PASSWORD`，使用至少 12 个字符的随机开发专用密码，然后运行：
+
+```bash
+npm run seed:dev
+```
+
+脚本准备 `employee1@example.test`、`employee2@example.test` 两个员工和 `approver1@example.test`、`approver2@example.test` 两个审批人，均激活。四个账号共用该开发密码，但每个账号独立生成 Argon2id 带盐哈希。脚本不打印密码或哈希。
+
+仅允许本地 `127.0.0.1` / `localhost` 上的 `workflow` 数据库，且 `NODE_ENV` 不能是 `production`。重复执行会更新这四个账号的姓名、邮箱、密码哈希、角色和激活状态，保留已有 UUID；四个账号在同一事务中提交。Seed 不会由应用启动自动调用，目前尚未实现 HTTP 登录。
 
 ## 测试与检查
 
