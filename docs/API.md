@@ -1,5 +1,7 @@
 # 工单 API 契约
 
+本文描述当前已实现的接口。第三周计划采用的认证、角色、资源权限和相关响应约定见[权限规则](permissions.md)，当前尚未生效。
+
 默认地址 `http://localhost:3000`。JSON 请求使用 `Content-Type: application/json`。所有写接口必须携带 `X-Demo-User-Id`（已存在用户的 UUID）；读取接口不要求此请求头。`:id` 必须是有效 UUID。
 
 ## 七个接口

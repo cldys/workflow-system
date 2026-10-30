@@ -7,10 +7,12 @@
 ## 文档
 
 - [业务规则与状态机](docs/business-rules.md)
+- [角色与资源权限规则（第三周计划）](docs/permissions.md)
 - [七个 API 契约与错误码](docs/API.md)
 - [数据库、关系与迁移](docs/database.md)
 - [任务 B：用户认证字段迁移与实库验收](docs/task-b-user-auth.md)
 - [任务 C：开发账号 Seed 与实库验收](docs/task-c-dev-users.md)
+- [Day 1 工程验收](docs/day-1-acceptance.md)
 - [第二周工程记录与验证结果](docs/week-2-engineering.md)
 
 ## 环境与启动
