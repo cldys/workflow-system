@@ -186,6 +186,120 @@ describe('Requests Workflow (e2e)', () => {
     await expectPersistedWorkflow(draft.id, 'DRAFT', ['CREATED']);
   });
 
+  it('lists a newly created request with the same data as its detail and database row', async () => {
+    const draft = await createDraft();
+    const listing = await request(app.getHttpServer())
+      .get('/requests')
+      .expect(200);
+    expect(Array.isArray(listing.body)).toBe(true);
+    const matches = (listing.body as RequestEntity[]).filter(
+      (item) => item.id === draft.id,
+    );
+    expect(matches).toEqual([draft]);
+
+    const detail = await request(app.getHttpServer())
+      .get(`/requests/${draft.id}`)
+      .expect(200);
+    const saved = await db
+      .getRepository(RequestEntity)
+      .findOneByOrFail({ id: draft.id });
+    expect(detail.body).toEqual(draft);
+    expect(JSON.parse(JSON.stringify(saved))).toEqual(detail.body);
+  });
+
+  describe('完整业务流程', () => {
+    async function expectCompletedWorkflow(
+      id: string,
+      status: 'APPROVED' | 'REJECTED',
+      note: string | null = null,
+    ) {
+      const finalRequest = await request(app.getHttpServer())
+        .get(`/requests/${id}`)
+        .expect(200);
+      expect(finalRequest.body).toMatchObject({
+        id,
+        status,
+        createdById: actorId,
+      });
+      const history = await request(app.getHttpServer())
+        .get(`/requests/${id}/events`)
+        .expect(200);
+      const events = history.body as RequestEventEntity[];
+      expect(events).toHaveLength(3);
+      expect(events.map((event) => event.action)).toEqual([
+        'CREATED',
+        'SUBMITTED',
+        status,
+      ]);
+      expect(events.map((event) => event.actorId)).toEqual([
+        actorId,
+        actorId,
+        reviewerId,
+      ]);
+      const expectedEvents = [
+        { fromStatus: null, toStatus: 'DRAFT', note: null },
+        { fromStatus: 'DRAFT', toStatus: 'PENDING', note: null },
+        { fromStatus: 'PENDING', toStatus: status, note },
+      ];
+      events.forEach((event, index) => {
+        expect(event).toMatchObject({
+          requestId: id,
+          ...expectedEvents[index],
+        });
+      });
+
+      const saved = await db
+        .getRepository(RequestEntity)
+        .findOneByOrFail({ id });
+      const savedEvents = await db.getRepository(RequestEventEntity).find({
+        where: { requestId: id },
+        order: { createdAt: 'ASC', id: 'ASC' },
+      });
+      expect(JSON.parse(JSON.stringify(saved))).toEqual(finalRequest.body);
+      expect(JSON.parse(JSON.stringify(savedEvents))).toEqual(events);
+    }
+
+    it('创建 → 查询 → 提交 → 通过 → 历史', async () => {
+      const draft = await createDraft();
+      const detail = await request(app.getHttpServer())
+        .get(`/requests/${draft.id}`)
+        .expect(200);
+      expect(detail.body).toEqual(draft);
+
+      expect(await transition(draft.id, 'submit')).toMatchObject({
+        id: draft.id,
+        status: 'PENDING',
+        createdById: actorId,
+      });
+      const approved = await request(app.getHttpServer())
+        .post(`/requests/${draft.id}/approve`)
+        .set('X-Demo-User-Id', reviewerId)
+        .send({})
+        .expect(200);
+      expect(approved.body).toMatchObject({ id: draft.id, status: 'APPROVED' });
+
+      await expectCompletedWorkflow(draft.id, 'APPROVED');
+    });
+
+    it('创建 → 提交 → 驳回 → 历史', async () => {
+      const draft = await createDraft();
+      expect(await transition(draft.id, 'submit')).toMatchObject({
+        id: draft.id,
+        status: 'PENDING',
+        createdById: actorId,
+      });
+      const reason = '采购预算不足，需要调整';
+      const rejected = await request(app.getHttpServer())
+        .post(`/requests/${draft.id}/reject`)
+        .set('X-Demo-User-Id', reviewerId)
+        .send({ reason })
+        .expect(200);
+      expect(rejected.body).toMatchObject({ id: draft.id, status: 'REJECTED' });
+
+      await expectCompletedWorkflow(draft.id, 'REJECTED', reason);
+    });
+  });
+
   it('submits DRAFT to PENDING with a SUBMITTED event', async () => {
     const draft = await createDraft();
     expect(await transition(draft.id, 'submit')).toMatchObject({

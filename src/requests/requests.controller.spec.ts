@@ -218,6 +218,32 @@ describe('RequestsController', () => {
     );
   });
 
+  it.each([
+    ['missing', {}],
+    ['blank', { reason: ' \t\n' }],
+    ['over 500 characters', { reason: 'a'.repeat(501) }],
+  ])(
+    'returns 400 for a %s rejection reason without writing',
+    async (_, body) => {
+      const path = `/requests/${id}/reject`;
+      const response = await request(app.getHttpServer())
+        .post(path)
+        .set('X-Demo-User-Id', createdById)
+        .send(body)
+        .expect(400);
+
+      expect(response.body).toMatchObject({
+        statusCode: 400,
+        code: 'VALIDATION_FAILED',
+        path,
+      });
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(repository.findOneBy).not.toHaveBeenCalled();
+      expect(queryBuilder.execute).not.toHaveBeenCalled();
+      expect(eventsRepository.save).not.toHaveBeenCalled();
+    },
+  );
+
   it('returns 404 when the creator does not exist without saving', async () => {
     usersRepository.findOneBy.mockResolvedValueOnce(null);
 
