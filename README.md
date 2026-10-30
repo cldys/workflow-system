@@ -9,6 +9,7 @@
 - [业务规则与状态机](docs/business-rules.md)
 - [七个 API 契约与错误码](docs/API.md)
 - [数据库、关系与迁移](docs/database.md)
+- [任务 B：用户认证字段迁移与实库验收](docs/task-b-user-auth.md)
 - [第二周工程记录与验证结果](docs/week-2-engineering.md)
 
 ## 环境与启动
