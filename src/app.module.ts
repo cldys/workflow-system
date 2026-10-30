@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import type { TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { AuthModule } from './auth/auth.module';
 import { RequestsModule } from './requests/requests.module';
 
 @Module({
@@ -24,6 +25,7 @@ import { RequestsModule } from './requests/requests.module';
       }),
     }),
     RequestsModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],

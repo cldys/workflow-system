@@ -1,8 +1,35 @@
-# 工单 API 契约
+# 登录与工单 API 契约
 
-本文描述当前已实现的接口。第三周计划采用的认证、角色、资源权限和相关响应约定见[权限规则](permissions.md)，当前尚未生效。
+本文描述当前已实现的接口。登录已支持密码验证与 JWT 签发，工单接口后续采用的 JWT 验证、角色、资源权限规则见[权限规则](permissions.md)，当前尚未生效。
 
-默认地址 `http://localhost:3000`。JSON 请求使用 `Content-Type: application/json`。所有写接口必须携带 `X-Demo-User-Id`（已存在用户的 UUID）；读取接口不要求此请求头。`:id` 必须是有效 UUID。
+默认地址 `http://localhost:3000`。JSON 请求使用 `Content-Type: application/json`。所有工单写接口必须携带 `X-Demo-User-Id`（已存在用户的 UUID）；读取接口不要求此请求头。`:id` 必须是有效 UUID。
+
+## 登录
+
+`POST /auth/login` 不需要操作人请求头，请求体为：
+
+```json
+{
+  "email": "employee1@example.test",
+  "password": "<填写账号密码>"
+}
+```
+
+邮箱必须合法且最长 255 字符；密码必须为非空字符串且最长 1024 字符。拒绝未知字段，登录不检查注册密码复杂度，也不修改密码内容。邮箱查询会转小写并去除首尾空格，但 HTTP DTO 会拒绝带首尾空格的邮箱。
+
+成功返回 HTTP 200：
+
+```json
+{ "access_token": "<JWT>" }
+```
+
+Token 使用 HS256，有效期 1 小时，仅包含用户 ID（`sub`）、角色（`role`）及签发和到期时间（`iat`、`exp`），不包含密码或哈希。启动前须配置 `JWT_SECRET`。目前工单路由仍使用演示操作人请求头，尚未验证 Bearer Token。
+
+格式错误返回 400 / `VALIDATION_FAILED`。邮箱不存在、密码错误、账号未激活、密码哈希缺失或无效，均返回 401 / `INVALID_CREDENTIALS`，消息统一为“邮箱或密码不正确”。
+
+职责链为 `AuthController → AuthService → UsersService → TypeORM Repository → PostgreSQL`：Controller 接收请求，UsersService 通过参数化查询显式读取隐藏的密码哈希，AuthService 使用 Argon2 验证密码并签发 JWT。没有数据库结构变更。
+
+实现参考：[NestJS JWT 官方仓库](https://github.com/nestjs/jwt)、[ValidationPipe](https://docs.nestjs.com/techniques/validation)、[TypeORM QueryBuilder](https://typeorm.io/docs/query-builder/select-query-builder/)。
 
 ## 七个接口
 
@@ -98,6 +125,7 @@ curl -i "$BASE_URL/requests/$REQUEST_ID/events"
 | 400  | INVALID_ACTOR_ID          | 写接口操作人请求头缺失或 UUID 格式错误                    |
 | 400  | VALIDATION_FAILED         | DTO 校验失败、未知请求体字段；多个信息合并到 message      |
 | 400  | BAD_REQUEST               | 其他 BadRequestException，例如 Service 的 reason 防御校验 |
+| 401  | INVALID_CREDENTIALS       | 登录邮箱或密码错误、账号未激活或没有有效密码哈希           |
 | 404  | REQUEST_NOT_FOUND         | 工单不存在                                                |
 | 404  | USER_NOT_FOUND            | 操作人 UUID 有效但用户不存在                              |
 | 404  | RESOURCE_NOT_FOUND        | 路由不存在等其他404                                       |
