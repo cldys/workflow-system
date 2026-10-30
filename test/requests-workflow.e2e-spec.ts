@@ -4,6 +4,7 @@ import 'dotenv/config';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { DataSource } from 'typeorm';
+import { isUUID } from 'class-validator';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 
@@ -237,4 +238,88 @@ describe('Requests Workflow (e2e)', () => {
       await verifyNoSideEffects(draft.id, action, status);
     },
   );
+
+  it('rolls back approval when PostgreSQL rejects the APPROVED event', async () => {
+    const draft = await createDraft();
+    await transition(draft.id, 'submit');
+    await expectPersistedWorkflow(draft.id, 'PENDING', [
+      'CREATED',
+      'SUBMITTED',
+    ]);
+
+    // DDL 无法参数化此 UUID 字面量，拼接前先验证其格式。
+    expect(isUUID(draft.id)).toBe(true);
+    const constraintName = `day6_fail_approved_event_${draft.id.replaceAll('-', '')}`;
+    const requestSql = 'SELECT * FROM requests WHERE id = $1';
+    const eventsSql = `
+      SELECT * FROM request_events
+      WHERE request_id = $1
+      ORDER BY created_at ASC, id ASC
+    `;
+    const requestsBefore = await db.query<Record<string, unknown>[]>(
+      requestSql,
+      [draft.id],
+    );
+    const eventsBefore = await db.query<Record<string, unknown>[]>(eventsSql, [
+      draft.id,
+    ]);
+    expect(requestsBefore).toHaveLength(1);
+    expect(requestsBefore[0]).toMatchObject({ status: 'PENDING' });
+    expect(eventsBefore).toHaveLength(2);
+    expect(eventsBefore.map((event) => event.action)).toEqual([
+      'CREATED',
+      'SUBMITTED',
+    ]);
+
+    try {
+      // 只拒绝本次工单的 APPROVED 事件，保留真实的事务和数据库写入。
+      await db.query(`
+        ALTER TABLE request_events
+        ADD CONSTRAINT "${constraintName}"
+        CHECK (NOT (request_id = '${draft.id}'::uuid AND action = 'APPROVED'))
+      `);
+
+      await request(app.getHttpServer())
+        .post(`/requests/${draft.id}/approve`)
+        .set('X-Demo-User-Id', actorId)
+        .send({})
+        .expect(500)
+        .expect({
+          statusCode: 500,
+          code: 'INTERNAL_SERVER_ERROR',
+          message: '服务器内部错误',
+          path: `/requests/${draft.id}/approve`,
+        });
+
+      // 从独立数据库查询确认事务已回滚，连更新时间和事件 ID 也保持不变。
+      const requestsAfter = await db.query<Record<string, unknown>[]>(
+        requestSql,
+        [draft.id],
+      );
+      const eventsAfter = await db.query<Record<string, unknown>[]>(eventsSql, [
+        draft.id,
+      ]);
+      expect(requestsAfter).toEqual(requestsBefore);
+      expect(eventsAfter).toEqual(eventsBefore);
+    } finally {
+      await db.query(`
+        ALTER TABLE request_events
+        DROP CONSTRAINT IF EXISTS "${constraintName}"
+      `);
+      const constraints = await db.query<{ conname: string }[]>(
+        `SELECT conname FROM pg_constraint
+         WHERE conrelid = 'request_events'::regclass AND conname = $1`,
+        [constraintName],
+      );
+      expect(constraints).toEqual([]);
+    }
+
+    // 移除故障后，同一张工单可以正常审批，且只新增一个事件。
+    await transition(draft.id, 'approve');
+    await expectPersistedWorkflow(draft.id, 'APPROVED', [
+      'CREATED',
+      'SUBMITTED',
+      'APPROVED',
+    ]);
+  });
 });
