@@ -56,7 +56,7 @@ describe('RequestsService', () => {
     repository.findOneBy.mockReset();
     repository.findOneBy.mockResolvedValue({ id, status: 'PENDING' });
     usersRepository.findOneBy.mockResolvedValue({ id: actorId });
-    queryBuilder.execute.mockResolvedValue({ affected: 1 });
+    queryBuilder.execute.mockReset().mockResolvedValue({ affected: 1 });
     const module = await Test.createTestingModule({
       providers: [
         RequestsService,
@@ -113,7 +113,9 @@ describe('RequestsService', () => {
       await expect(service.createRequest(dto, actorId)).resolves.toEqual(saved);
       expect(usersRepository.findOneBy).toHaveBeenCalledWith({ id: actorId });
       expect(repository.create).toHaveBeenCalledWith(draft);
+      expect(repository.save).toHaveBeenCalledTimes(1);
       expect(repository.save).toHaveBeenCalledWith(draft);
+      expect(eventsRepository.save).toHaveBeenCalledTimes(1);
       expect(eventsRepository.save).toHaveBeenCalledWith({
         requestId: id,
         actorId,
@@ -147,6 +149,68 @@ describe('RequestsService', () => {
       createdById: actorId,
     });
   });
+
+  it('submits a DRAFT request and saves its transition event', async () => {
+    const draft = { id, status: 'DRAFT' };
+    const saved = { id, status: 'PENDING' };
+    repository.findOneBy.mockResolvedValueOnce(draft);
+    repository.save.mockResolvedValueOnce(saved);
+
+    await expect(service.submitRequest(id, actorId)).resolves.toEqual(saved);
+
+    expect(repository.save).toHaveBeenCalledTimes(1);
+    expect(repository.save).toHaveBeenCalledWith(saved);
+    expect(queryBuilder.execute).not.toHaveBeenCalled();
+    expect(eventsRepository.save).toHaveBeenCalledTimes(1);
+    expect(eventsRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: id,
+        actorId,
+        action: 'SUBMITTED',
+        fromStatus: 'DRAFT',
+        toStatus: 'PENDING',
+        note: null,
+      }),
+    );
+  });
+
+  it.each([
+    ['approveRequest', 'APPROVED', null],
+    ['rejectRequest', 'REJECTED', 'Reason'],
+  ] as const)(
+    '%s conditionally updates PENDING and saves the correct event',
+    async (method, status, note) => {
+      const updated = { id, status };
+      repository.findOneBy
+        .mockResolvedValueOnce({ id, status: 'PENDING' })
+        .mockResolvedValueOnce(updated);
+
+      await expect(service[method](id, actorId, '  Reason  ')).resolves.toEqual(
+        updated,
+      );
+
+      expect(queryBuilder.update).toHaveBeenCalledWith(RequestEntity);
+      expect(queryBuilder.set).toHaveBeenCalledWith({ status });
+      expect(queryBuilder.where).toHaveBeenCalledWith('id = :id', { id });
+      expect(queryBuilder.andWhere).toHaveBeenCalledWith('status = :status', {
+        status: 'PENDING',
+      });
+      expect(queryBuilder.execute).toHaveBeenCalledTimes(1);
+      expect(repository.findOneBy).toHaveBeenCalledTimes(2);
+      expect(repository.save).not.toHaveBeenCalled();
+      expect(eventsRepository.save).toHaveBeenCalledTimes(1);
+      expect(eventsRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestId: id,
+          actorId,
+          action: status,
+          fromStatus: 'PENDING',
+          toStatus: status,
+          note,
+        }),
+      );
+    },
+  );
 
   it.each(['createRequest', ...transitions] as const)(
     '%s reports USER_NOT_FOUND without writing',
@@ -197,6 +261,16 @@ describe('RequestsService', () => {
         },
       });
       expect(repository.save).not.toHaveBeenCalled();
+      if (method === 'submitRequest') {
+        expect(queryBuilder.execute).not.toHaveBeenCalled();
+      } else {
+        expect(queryBuilder.execute).toHaveBeenCalledTimes(1);
+        expect(queryBuilder.where).toHaveBeenCalledWith('id = :id', { id });
+        expect(queryBuilder.andWhere).toHaveBeenCalledWith('status = :status', {
+          status: 'PENDING',
+        });
+        expect(repository.findOneBy).toHaveBeenCalledTimes(2);
+      }
       expect(eventsRepository.save).not.toHaveBeenCalled();
     },
   );
@@ -215,6 +289,12 @@ describe('RequestsService', () => {
         status: 409,
         response: { code: 'INVALID_STATUS_TRANSITION' },
       });
+      expect(queryBuilder.execute).toHaveBeenCalledTimes(1);
+      expect(queryBuilder.andWhere).toHaveBeenCalledWith('status = :status', {
+        status: 'PENDING',
+      });
+      expect(repository.findOneBy).toHaveBeenCalledTimes(2);
+      expect(repository.save).not.toHaveBeenCalled();
       expect(eventsRepository.save).not.toHaveBeenCalled();
     },
   );
@@ -233,6 +313,7 @@ describe('RequestsService', () => {
         status: 404,
         response: { code: 'REQUEST_NOT_FOUND', message: '工单不存在' },
       });
+      expect(queryBuilder.execute).toHaveBeenCalledTimes(1);
       expect(eventsRepository.save).not.toHaveBeenCalled();
     },
   );
