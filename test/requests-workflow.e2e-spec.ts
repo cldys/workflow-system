@@ -3,6 +3,7 @@
 import 'dotenv/config';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { JwtService } from '@nestjs/jwt';
 import { DataSource, In } from 'typeorm';
 import { isUUID } from 'class-validator';
 import request from 'supertest';
@@ -19,6 +20,8 @@ describe('Requests Workflow (e2e)', () => {
   let db: DataSource;
   let actorId: string;
   let reviewerId: string;
+  let actorToken: string;
+  let reviewerToken: string;
 
   beforeAll(async () => {
     // 防止误操作开发数据库
@@ -56,13 +59,20 @@ describe('Requests Workflow (e2e)', () => {
 
     const users = db.getRepository(UserEntity);
     const actor = await users.save(
-      users.create({ displayName: 'Workflow e2e actor' }),
+      users.create({ displayName: 'Workflow e2e actor', isActive: true }),
     );
     actorId = actor.id;
     const reviewer = await users.save(
-      users.create({ displayName: 'Workflow e2e reviewer' }),
+      users.create({
+        displayName: 'Workflow e2e reviewer',
+        role: 'APPROVER',
+        isActive: true,
+      }),
     );
     reviewerId = reviewer.id;
+    const jwtService = app.get(JwtService);
+    actorToken = await jwtService.signAsync({ sub: actorId });
+    reviewerToken = await jwtService.signAsync({ sub: reviewerId });
   });
 
   afterAll(async () => {
@@ -86,7 +96,7 @@ describe('Requests Workflow (e2e)', () => {
   async function createDraft(): Promise<RequestEntity> {
     const response = await request(app.getHttpServer())
       .post('/requests')
-      .set('X-Demo-User-Id', actorId)
+      .set('Authorization', `Bearer ${actorToken}`)
       .send({ title: 'Workflow e2e request', description: 'Test description' })
       .expect(201);
 
@@ -106,7 +116,7 @@ describe('Requests Workflow (e2e)', () => {
   ): Promise<RequestEntity> {
     const response = await request(app.getHttpServer())
       .post(`/requests/${id}/${action}`)
-      .set('X-Demo-User-Id', actorId)
+      .set('Authorization', `Bearer ${actorToken}`)
       .send(action === 'reject' ? { reason: '  Needs revision  ' } : {})
       .expect(200);
     return response.body as RequestEntity;
@@ -119,11 +129,13 @@ describe('Requests Workflow (e2e)', () => {
   ) {
     const saved = await request(app.getHttpServer())
       .get(`/requests/${id}`)
+      .set('Authorization', `Bearer ${actorToken}`)
       .expect(200);
     expect(saved.body).toMatchObject({ id, status, createdById: actorId });
 
     const response = await request(app.getHttpServer())
       .get(`/requests/${id}/events`)
+      .set('Authorization', `Bearer ${actorToken}`)
       .expect(200);
     const events = response.body as RequestEventEntity[];
     expect(events).toHaveLength(actions.length);
@@ -155,15 +167,17 @@ describe('Requests Workflow (e2e)', () => {
   ) {
     const before = await request(app.getHttpServer())
       .get(`/requests/${id}`)
+      .set('Authorization', `Bearer ${actorToken}`)
       .expect(200);
     expect(before.body).toMatchObject({ status: expectedStatus });
     const eventsBefore = await request(app.getHttpServer())
       .get(`/requests/${id}/events`)
+      .set('Authorization', `Bearer ${actorToken}`)
       .expect(200);
 
     const response = await request(app.getHttpServer())
       .post(`/requests/${id}/${action}`)
-      .set('X-Demo-User-Id', actorId)
+      .set('Authorization', `Bearer ${actorToken}`)
       .send(action === 'reject' ? { reason: 'Invalid transition' } : {})
       .expect(409);
     expect(response.body).toMatchObject({
@@ -173,9 +187,11 @@ describe('Requests Workflow (e2e)', () => {
 
     const after = await request(app.getHttpServer())
       .get(`/requests/${id}`)
+      .set('Authorization', `Bearer ${actorToken}`)
       .expect(200);
     const eventsAfter = await request(app.getHttpServer())
       .get(`/requests/${id}/events`)
+      .set('Authorization', `Bearer ${actorToken}`)
       .expect(200);
     expect(after.body).toEqual(before.body);
     expect(eventsAfter.body).toEqual(eventsBefore.body);
@@ -190,6 +206,7 @@ describe('Requests Workflow (e2e)', () => {
     const draft = await createDraft();
     const listing = await request(app.getHttpServer())
       .get('/requests')
+      .set('Authorization', `Bearer ${actorToken}`)
       .expect(200);
     expect(Array.isArray(listing.body)).toBe(true);
     const matches = (listing.body as RequestEntity[]).filter(
@@ -199,6 +216,7 @@ describe('Requests Workflow (e2e)', () => {
 
     const detail = await request(app.getHttpServer())
       .get(`/requests/${draft.id}`)
+      .set('Authorization', `Bearer ${actorToken}`)
       .expect(200);
     const saved = await db
       .getRepository(RequestEntity)
@@ -215,6 +233,7 @@ describe('Requests Workflow (e2e)', () => {
     ) {
       const finalRequest = await request(app.getHttpServer())
         .get(`/requests/${id}`)
+        .set('Authorization', `Bearer ${actorToken}`)
         .expect(200);
       expect(finalRequest.body).toMatchObject({
         id,
@@ -223,6 +242,7 @@ describe('Requests Workflow (e2e)', () => {
       });
       const history = await request(app.getHttpServer())
         .get(`/requests/${id}/events`)
+        .set('Authorization', `Bearer ${actorToken}`)
         .expect(200);
       const events = history.body as RequestEventEntity[];
       expect(events).toHaveLength(3);
@@ -263,6 +283,7 @@ describe('Requests Workflow (e2e)', () => {
       const draft = await createDraft();
       const detail = await request(app.getHttpServer())
         .get(`/requests/${draft.id}`)
+        .set('Authorization', `Bearer ${actorToken}`)
         .expect(200);
       expect(detail.body).toEqual(draft);
 
@@ -273,7 +294,7 @@ describe('Requests Workflow (e2e)', () => {
       });
       const approved = await request(app.getHttpServer())
         .post(`/requests/${draft.id}/approve`)
-        .set('X-Demo-User-Id', reviewerId)
+        .set('Authorization', `Bearer ${reviewerToken}`)
         .send({})
         .expect(200);
       expect(approved.body).toMatchObject({ id: draft.id, status: 'APPROVED' });
@@ -291,7 +312,7 @@ describe('Requests Workflow (e2e)', () => {
       const reason = '采购预算不足，需要调整';
       const rejected = await request(app.getHttpServer())
         .post(`/requests/${draft.id}/reject`)
-        .set('X-Demo-User-Id', reviewerId)
+        .set('Authorization', `Bearer ${reviewerToken}`)
         .send({ reason })
         .expect(200);
       expect(rejected.body).toMatchObject({ id: draft.id, status: 'REJECTED' });
@@ -379,11 +400,11 @@ describe('Requests Workflow (e2e)', () => {
       const [approveResult, rejectResult] = await Promise.all([
         request(app.getHttpServer())
           .post(`/requests/${draft.id}/approve`)
-          .set('X-Demo-User-Id', actorId)
+          .set('Authorization', `Bearer ${actorToken}`)
           .send({}),
         request(app.getHttpServer())
           .post(`/requests/${draft.id}/reject`)
-          .set('X-Demo-User-Id', reviewerId)
+          .set('Authorization', `Bearer ${reviewerToken}`)
           .send({ reason }),
       ]);
       expect(
@@ -402,10 +423,12 @@ describe('Requests Workflow (e2e)', () => {
 
       const finalRequest = await request(app.getHttpServer())
         .get(`/requests/${draft.id}`)
+        .set('Authorization', `Bearer ${actorToken}`)
         .expect(200);
       expect(finalRequest.body).toMatchObject({ id: draft.id, status });
       const history = await request(app.getHttpServer())
         .get(`/requests/${draft.id}/events`)
+        .set('Authorization', `Bearer ${actorToken}`)
         .expect(200);
       const events = history.body as RequestEventEntity[];
       expect(events).toHaveLength(3);
@@ -449,7 +472,10 @@ describe('Requests Workflow (e2e)', () => {
         [actorId, reviewerId].map((submitterId) =>
           request(app.getHttpServer())
             .post(`/requests/${draft.id}/submit`)
-            .set('X-Demo-User-Id', submitterId)
+            .set(
+              'Authorization',
+              `Bearer ${submitterId === actorId ? actorToken : reviewerToken}`,
+            )
             .send({}),
         ),
       );
@@ -531,7 +557,7 @@ describe('Requests Workflow (e2e)', () => {
 
       await request(app.getHttpServer())
         .post(`/requests/${draft.id}/approve`)
-        .set('X-Demo-User-Id', actorId)
+        .set('Authorization', `Bearer ${actorToken}`)
         .send({})
         .expect(500)
         .expect({

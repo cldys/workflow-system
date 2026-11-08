@@ -5,16 +5,18 @@ import {
   Body,
   Controller,
   Get,
-  Headers,
   Param,
   ParseUUIDPipe,
   Post,
+  UseGuards,
 } from '@nestjs/common';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { RequestsService } from './requests.service';
 
-import { isUUID } from 'class-validator';
 import { RejectRequestDto } from './dto/reject-request.dto';
+import { CurrentUser } from '../auth/current-user.decorator';
+import type { CurrentUserData } from '../auth/current-user-data.interface';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 const requestIdPipe = new ParseUUIDPipe({
   exceptionFactory: () =>
@@ -25,6 +27,7 @@ const requestIdPipe = new ParseUUIDPipe({
 });
 
 @Controller('requests')
+@UseGuards(JwtAuthGuard)
 export class RequestsController {
   constructor(private readonly requestsService: RequestsService) {}
 
@@ -41,48 +44,27 @@ export class RequestsController {
   @Post()
   createRequest(
     @Body() dto: CreateRequestDto,
-    @Headers('x-demo-user-id') actorId: string,
+    @CurrentUser() user: CurrentUserData,
   ) {
-    if (!actorId || !isUUID(actorId)) {
-      throw new BadRequestException({
-        code: 'INVALID_ACTOR_ID',
-        message: 'X-Demo-User-Id 必须是有效的 UUID',
-      });
-    }
-    return this.requestsService.createRequest(dto, actorId);
+    return this.requestsService.createRequest(dto, user.id);
   }
 
   @Post(':id/submit')
   @HttpCode(HttpStatus.OK)
   submitRequest(
     @Param('id', requestIdPipe) id: string,
-    @Headers('x-demo-user-id')
-    actorId: string,
+    @CurrentUser() user: CurrentUserData,
   ) {
-    // 手动校验：先使用 @Headers() 获取值，再通过 if 判断并抛出异常。
-    if (!actorId || !isUUID(actorId)) {
-      throw new BadRequestException({
-        code: 'INVALID_ACTOR_ID',
-        message: 'X-Demo-User-Id 必须是有效的 UUID',
-      });
-    }
-    return this.requestsService.submitRequest(id, actorId);
+    return this.requestsService.submitRequest(id, user.id);
   }
 
   @Post(':id/approve')
   @HttpCode(HttpStatus.OK)
   approveRequest(
     @Param('id', requestIdPipe) id: string,
-    @Headers('x-demo-user-id') actorId: string,
+    @CurrentUser() user: CurrentUserData,
   ) {
-    if (!actorId || !isUUID(actorId)) {
-      throw new BadRequestException({
-        code: 'INVALID_ACTOR_ID',
-        message: 'X-Demo-User-Id 必须是有效的 UUID',
-      });
-    }
-
-    return this.requestsService.approveRequest(id, actorId);
+    return this.requestsService.approveRequest(id, user.id);
   }
 
   @Post(':id/reject')
@@ -90,16 +72,9 @@ export class RequestsController {
   rejectRequest(
     @Param('id', requestIdPipe) id: string,
     @Body() dto: RejectRequestDto,
-    @Headers('x-demo-user-id') actorId: string,
+    @CurrentUser() user: CurrentUserData,
   ) {
-    if (!actorId || !isUUID(actorId)) {
-      throw new BadRequestException({
-        code: 'INVALID_ACTOR_ID',
-        message: 'X-Demo-User-Id 必须是有效的 UUID',
-      });
-    }
-
-    return this.requestsService.rejectRequest(id, actorId, dto.reason);
+    return this.requestsService.rejectRequest(id, user.id, dto.reason);
   }
 
   @Get(':id/events')

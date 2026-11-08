@@ -2,7 +2,7 @@
 
 基于 NestJS、TypeScript、PostgreSQL 和 TypeORM 的工单 API。支持创建、列表、详情、提交、审批通过、审批驳回和历史查询；状态修改与事件记录使用同一事务，条件 UPDATE 防止重复提交或重复决策。
 
-已实现 `POST /auth/login` 密码登录和 JWT 签发。工单接口当前仍使用 `X-Demo-User-Id` 模拟操作人，尚未接入 JWT 验证或角色授权；没有用户管理接口、工单修改或删除接口。列表没有分页和默认排序。
+已实现 `POST /auth/login` 密码登录和 JWT 签发。所有工单接口已接入 JWT 验证，每次查询数据库确认账号存在且激活，并读取最新角色；角色授权尚未实现。没有用户管理接口、工单修改或删除接口。列表没有分页和默认排序。
 
 ## 文档
 
@@ -62,27 +62,21 @@ npm run build
 npm run start:prod
 ```
 
-检查 `http://localhost:3000/` 返回 `Hello World!`，`GET /requests` 返回数组。
+检查 `http://localhost:3000/` 返回 `Hello World!`；携带有效 Bearer Token 访问 `GET /requests` 返回数组，未认证返回 401。
 
 ## 第一个业务请求
 
-在数据库 SQL 客户端执行以下语句创建演示用户，记下返回的 UUID；系统没有创建用户的 HTTP 接口：
-
-```sql
-INSERT INTO users (display_name) VALUES ('演示操作人') RETURNING id;
-```
-
-将返回值设为 `ACTOR_ID`，然后发送请求：
+先按下节初始化激活的开发账号，通过 `POST /auth/login` 获取 `accessToken`（登录示例见 [API 文档](docs/API.md)），然后发送请求：
 
 ```bash
-export ACTOR_ID='<上一步返回的 UUID>'
+export ACCESS_TOKEN='<登录响应中的 accessToken>'
 curl -i http://localhost:3000/requests \
   -H 'Content-Type: application/json' \
-  -H "X-Demo-User-Id: $ACTOR_ID" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
   -d '{"title":"采购申请","description":"办公用品"}'
 ```
 
-预期 `201`、状态 `DRAFT`。操作人通过请求头传递，不能在请求体提交 `createdById`；完整提交、审批和驳回示例见 API 文档。
+预期 `201`、状态 `DRAFT`。操作人来自已验证 JWT 对应的数据库用户，`X-Demo-User-Id` 不再作为身份来源；不能在请求体提交 `createdById`。列表、详情和历史接口同样需要 Bearer Token。
 
 ## 开发测试账号
 
@@ -125,6 +119,6 @@ e2e 覆盖两条完整业务流程、9 种非法转换、真实 CHECK 故障回�
 - 认证失败：检查本地 `.env` 与已有数据库账号，Compose 不会重置已有卷密码。
 - 数据库不存在：先创建目标数据库。
 - 表不存在：对正确数据库运行 `npm run migration:run`。
-- `USER_NOT_FOUND`：请求头 UUID 对应的用户必须先存在。
+- `UNAUTHORIZED`：检查 Bearer Token 的签名、有效期、签发方与接收方，以及对应账号是否存在且已激活。
 
 不要提交 `.env`、数据库备份、密码或密钥。Compose 从环境变量读取密码。历史迁移用户只用于旧数据归属，不是真实员工。详情见数据库文档。

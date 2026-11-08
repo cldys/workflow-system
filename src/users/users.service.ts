@@ -11,6 +11,10 @@ export class UsersService {
     private readonly usersRepository: Repository<UserEntity>,
   ) {}
 
+  async findById(id: string): Promise<UserEntity | null> {
+    return this.usersRepository.findOneBy({ id });
+  }
+
   async findByEmailForLogin(email: string): Promise<UserEntity | null> {
     const normalizedEmail = email.trim().toLowerCase();
 

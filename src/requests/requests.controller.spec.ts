@@ -1,17 +1,25 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import {
+  Global,
+  INestApplication,
+  Module,
+  ValidationPipe,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import request from 'supertest';
 import { DataSource, EntityManager } from 'typeorm';
 import { HttpExceptionFilter } from '../common/filters/http-exception.filter';
 import { RequestEventEntity } from '../request-events/entities/request-event.entity';
 import { RequestEntity } from './entities/request.entity';
-import { RequestsController } from './requests.controller';
-import { RequestsService } from './requests.service';
+import { RequestsModule } from './requests.module';
 import { UserEntity } from '../users/entities/user.entity';
 
 describe('RequestsController', () => {
   let app: INestApplication;
+  let accessToken: string;
+  const secret = 'requests-tests-only-secret-not-for-production';
   const id = '550e8400-e29b-41d4-a716-446655440000';
   const createdById = '550e8400-e29b-41d4-a716-446655440001';
   const usersRepository = { findOneBy: jest.fn() };
@@ -51,6 +59,14 @@ describe('RequestsController', () => {
       run(manager as unknown as EntityManager),
     ),
   };
+  @Global()
+  @Module({
+    providers: [{ provide: DataSource, useValue: dataSource }],
+    exports: [DataSource],
+  })
+  class TestDatabaseModule {}
+
+  const readRoutes = ['', `/${id}`, `/${id}/events`];
   const writeRoutes = ['', `/${id}/submit`, `/${id}/approve`, `/${id}/reject`];
   const body = { title: 'Request', reason: 'Reason' };
   const bodyFor = (route: string) =>
@@ -63,17 +79,24 @@ describe('RequestsController', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     repository.findOneBy.mockReset();
-    usersRepository.findOneBy.mockResolvedValue({ id: createdById });
+    usersRepository.findOneBy.mockResolvedValue({
+      id: createdById,
+      role: 'EMPLOYEE',
+      isActive: true,
+    });
     queryBuilder.execute.mockResolvedValue({ affected: 0 });
     const module = await Test.createTestingModule({
-      controllers: [RequestsController],
-      providers: [
-        RequestsService,
-        { provide: getRepositoryToken(RequestEntity), useValue: repository },
-        { provide: getRepositoryToken(UserEntity), useValue: usersRepository },
-        { provide: DataSource, useValue: dataSource },
-      ],
-    }).compile();
+      imports: [TestDatabaseModule, RequestsModule],
+    })
+      .overrideProvider(getRepositoryToken(RequestEntity))
+      .useValue(repository)
+      .overrideProvider(getRepositoryToken(RequestEventEntity))
+      .useValue(eventsRepository)
+      .overrideProvider(getRepositoryToken(UserEntity))
+      .useValue(usersRepository)
+      .overrideProvider(ConfigService)
+      .useValue({ get: () => secret })
+      .compile();
 
     app = module.createNestApplication();
     app.useGlobalFilters(new HttpExceptionFilter());
@@ -85,6 +108,7 @@ describe('RequestsController', () => {
       }),
     );
     await app.init();
+    accessToken = await app.get(JwtService).signAsync({ sub: createdById });
   });
 
   afterEach(async () => {
@@ -100,9 +124,10 @@ describe('RequestsController', () => {
         ? client.get(path)
         : client
             .post(path)
-            .set('X-Demo-User-Id', createdById)
+            .set('Authorization', `Bearer ${accessToken}`)
             .send(bodyFor(suffix));
 
+      operation.set('Authorization', `Bearer ${accessToken}`);
       await operation.expect(400).expect({
         statusCode: 400,
         code: 'INVALID_UUID',
@@ -119,6 +144,7 @@ describe('RequestsController', () => {
 
     await request(app.getHttpServer())
       .get(`/requests/${id}`)
+      .set('Authorization', `Bearer ${accessToken}`)
       .expect(404)
       .expect({
         statusCode: 404,
@@ -144,6 +170,7 @@ describe('RequestsController', () => {
 
     const response = await request(app.getHttpServer())
       .get(`/requests/${id}`)
+      .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
 
     expect(response.body).toEqual({
@@ -160,7 +187,7 @@ describe('RequestsController', () => {
   ])('returns 201 for valid input: %p', async (body) => {
     const response = await request(app.getHttpServer())
       .post('/requests')
-      .set('X-Demo-User-Id', createdById)
+      .set('Authorization', `Bearer ${accessToken}`)
       .send(body)
       .expect(201);
 
@@ -189,33 +216,75 @@ describe('RequestsController', () => {
   ])('returns 400 for invalid input: %p', async (body) => {
     await request(app.getHttpServer())
       .post('/requests')
-      .set('X-Demo-User-Id', createdById)
+      .set('Authorization', `Bearer ${accessToken}`)
       .send(body)
       .expect(400);
     expect(repository.save).not.toHaveBeenCalled();
   });
 
-  describe.each(writeRoutes)('actor header on POST /requests%s', (route) => {
-    it.each([undefined, '', 'not-a-uuid', '123'])(
-      'returns INVALID_ACTOR_ID for header %p without starting a transaction',
-      async (actorId) => {
+  describe.each([
+    ...readRoutes.map((route) => ({ method: 'get' as const, route })),
+    ...writeRoutes.map((route) => ({ method: 'post' as const, route })),
+  ])('$method /requests$route authentication', ({ method, route }) => {
+    it.each([undefined, 'Basic credentials', 'Bearer invalid-token'])(
+      'returns 401 for missing or invalid authorization: %p',
+      async (authorization) => {
         const path = `/requests${route}`;
         const operation = request(app.getHttpServer())
-          .post(path)
-          .send(bodyFor(route));
-        if (actorId !== undefined) operation.set('X-Demo-User-Id', actorId);
+          [method](path)
+          .set('X-Demo-User-Id', createdById);
+        if (method === 'post') operation.send(bodyFor(route));
+        if (authorization !== undefined) {
+          operation.set('Authorization', authorization);
+        }
 
-        await operation.expect(400).expect({
-          statusCode: 400,
-          code: 'INVALID_ACTOR_ID',
-          message: 'X-Demo-User-Id 必须是有效的 UUID',
+        await operation.expect(401).expect({
+          statusCode: 401,
+          code: 'UNAUTHORIZED',
+          message: '请提供有效的登录凭证',
           path,
         });
         expect(dataSource.transaction).not.toHaveBeenCalled();
         expect(usersRepository.findOneBy).not.toHaveBeenCalled();
-        expect(repository.save).not.toHaveBeenCalled();
+        expect(repository.findOneBy).not.toHaveBeenCalled();
       },
     );
+  });
+
+  it.each(writeRoutes)(
+    'ignores a forged actor header on POST /requests%s',
+    async (route) => {
+      repository.findOneBy.mockResolvedValue({ id, status: 'DRAFT' });
+      queryBuilder.execute.mockResolvedValue({ affected: 1 });
+      await request(app.getHttpServer())
+        .post(`/requests${route}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .set('X-Demo-User-Id', id)
+        .send(bodyFor(route))
+        .expect(route ? 200 : 201);
+
+      expect(eventsRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ actorId: createdById }),
+      );
+      expect(usersRepository.findOneBy).not.toHaveBeenCalledWith({ id });
+    },
+  );
+
+  it('preserves database failures as 500 responses', async () => {
+    usersRepository.findOneBy.mockRejectedValueOnce(
+      new Error('database unavailable'),
+    );
+    await request(app.getHttpServer())
+      .get('/requests')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(500)
+      .expect({
+        statusCode: 500,
+        code: 'INTERNAL_SERVER_ERROR',
+        message: '服务器内部错误',
+        path: '/requests',
+      });
+    expect(dataSource.transaction).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -228,7 +297,7 @@ describe('RequestsController', () => {
       const path = `/requests/${id}/reject`;
       const response = await request(app.getHttpServer())
         .post(path)
-        .set('X-Demo-User-Id', createdById)
+        .set('Authorization', `Bearer ${accessToken}`)
         .send(body)
         .expect(400);
 
@@ -244,24 +313,32 @@ describe('RequestsController', () => {
     },
   );
 
-  it('returns 404 when the creator does not exist without saving', async () => {
-    usersRepository.findOneBy.mockResolvedValueOnce(null);
+  it.each([
+    ['deleted', null],
+    ['inactive', { id: createdById, role: 'EMPLOYEE', isActive: false }],
+  ])(
+    'returns 401 for an authenticated %s user without saving',
+    async (_, user) => {
+      usersRepository.findOneBy.mockResolvedValueOnce(user);
 
-    await request(app.getHttpServer())
-      .post('/requests')
-      .set('X-Demo-User-Id', createdById)
-      .send({ title: 'Request' })
-      .expect(404)
-      .expect({
-        statusCode: 404,
-        code: 'USER_NOT_FOUND',
-        message: '操作用户不存在',
-        path: '/requests',
+      await request(app.getHttpServer())
+        .post('/requests')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ title: 'Request' })
+        .expect(401)
+        .expect({
+          statusCode: 401,
+          code: 'UNAUTHORIZED',
+          message: '请提供有效的登录凭证',
+          path: '/requests',
+        });
+
+      expect(usersRepository.findOneBy).toHaveBeenCalledWith({
+        id: createdById,
       });
-
-    expect(usersRepository.findOneBy).toHaveBeenCalledWith({ id: createdById });
-    expect(repository.save).not.toHaveBeenCalled();
-  });
+      expect(repository.save).not.toHaveBeenCalled();
+    },
+  );
 
   it.each(['submit', 'approve', 'reject'])(
     'returns INVALID_STATUS_TRANSITION for conflicting %s',
@@ -271,7 +348,7 @@ describe('RequestsController', () => {
 
       await request(app.getHttpServer())
         .post(path)
-        .set('X-Demo-User-Id', createdById)
+        .set('Authorization', `Bearer ${accessToken}`)
         .send(bodyFor(path))
         .expect(409)
         .expect({

@@ -1,12 +1,12 @@
 # 登录与工单 API 契约
 
-本文描述当前已实现的接口。登录已支持密码验证与 JWT 签发，工单接口后续采用的 JWT 验证、角色、资源权限规则见[权限规则](permissions.md)，当前尚未生效。
+本文描述当前已实现的接口。登录已支持密码验证与 JWT 签发，所有工单接口已接入 JWT 认证；角色与资源权限规则见[权限规则](permissions.md)，这些授权规则尚未生效。
 
-默认地址 `http://localhost:3000`。JSON 请求使用 `Content-Type: application/json`。所有工单写接口必须携带 `X-Demo-User-Id`（已存在用户的 UUID）；读取接口不要求此请求头。`:id` 必须是有效 UUID。
+默认地址 `http://localhost:3000`。JSON 请求使用 `Content-Type: application/json`。所有工单接口（含列表、详情和历史）必须携带 `Authorization: Bearer <token>`；`X-Demo-User-Id` 不再作为身份来源。`:id` 必须是有效 UUID。
 
 ## 登录
 
-`POST /auth/login` 不需要操作人请求头，请求体为：
+`POST /auth/login` 不需要 Bearer Token，请求体为：
 
 ```json
 {
@@ -27,7 +27,9 @@
 }
 ```
 
-`expiresIn` 的单位为秒。Token 使用 HS256，有效期 1800 秒（30 分钟），仅包含用户 ID（`sub`）、签发和到期时间（`iat`、`exp`）、签发方（`iss`，值为 `workflow-system`）与接收方（`aud`，值为 `workflow-api`）。`iat`、`exp`、`iss`、`aud` 由签名配置自动生成。Token 不包含角色、用户资料、密码或哈希；后续将根据 `sub` 从数据库查询最新角色与激活状态。启动前须配置 `JWT_SECRET`。目前工单路由仍使用演示操作人请求头，尚未验证 Bearer Token。
+`expiresIn` 的单位为秒。Token 使用 HS256，有效期 1800 秒（30 分钟），仅包含用户 ID（`sub`）、签发和到期时间（`iat`、`exp`）、签发方（`iss`，值为 `workflow-system`）与接收方（`aud`，值为 `workflow-api`）。`iat`、`exp`、`iss`、`aud` 由签名配置自动生成。Token 不包含角色、用户资料、密码或哈希；每次访问工单接口时根据 `sub` 从数据库查询最新角色与激活状态。启动前须配置 `JWT_SECRET`。
+
+`JwtAuthGuard` 使用 `JwtService.verifyAsync()` 验证签名、到期时间和 nbf，显式限制 `algorithms: ['HS256']`、`issuer: 'workflow-system'`、`audience: 'workflow-api'`；不接受缺少到期时间的 Token。通过验证后检查 `sub` 为用户 UUID，再查询数据库，只有存在且激活的账号才将 `{ id, role }` 写入 `request.user`。`@CurrentUser()` 只读取该认证结果，Controller 将其中的用户 ID 传入 Service，忽略客户端提供的演示操作人或 Token 中的角色。身份来源固定为 `JWT 验证结果 → 数据库用户 → request.user → Controller → Service`。
 
 格式错误返回 400 / `VALIDATION_FAILED`。邮箱不存在、密码错误、账号未激活、密码哈希缺失或无效，均返回相同的认证失败响应：
 
@@ -122,22 +124,22 @@ curl -i http://localhost:3000/auth/login \
 
 ## 调用示例
 
-先按 README 在数据库创建用户。以下占位符须替换为真实 UUID，创建成功后从响应复制工单 ID：
+先按 README 初始化激活的开发账号并登录。以下 Token 占位符须替换为对应账号的登录响应，创建成功后从响应复制工单 ID：
 
 ```bash
 export BASE_URL='http://localhost:3000'
-export ACTOR_A='<创建人 UUID>'
-export ACTOR_B='<审批人 UUID>'
+export TOKEN_A='<创建人 accessToken>'
+export TOKEN_B='<审批人 accessToken>'
 curl -i "$BASE_URL/requests" -H 'Content-Type: application/json' \
-  -H "X-Demo-User-Id: $ACTOR_A" -d '{"title":"采购申请"}'
+  -H "Authorization: Bearer $TOKEN_A" -d '{"title":"采购申请"}'
 export REQUEST_ID='<创建响应中的工单 UUID>'
-curl -i "$BASE_URL/requests"
-curl -i "$BASE_URL/requests/$REQUEST_ID"
+curl -i "$BASE_URL/requests" -H "Authorization: Bearer $TOKEN_A"
+curl -i "$BASE_URL/requests/$REQUEST_ID" -H "Authorization: Bearer $TOKEN_A"
 curl -i -X POST "$BASE_URL/requests/$REQUEST_ID/submit" \
-  -H "X-Demo-User-Id: $ACTOR_A"
+  -H "Authorization: Bearer $TOKEN_A"
 curl -i -X POST "$BASE_URL/requests/$REQUEST_ID/approve" \
-  -H "X-Demo-User-Id: $ACTOR_B"
-curl -i "$BASE_URL/requests/$REQUEST_ID/events"
+  -H "Authorization: Bearer $TOKEN_B"
+curl -i "$BASE_URL/requests/$REQUEST_ID/events" -H "Authorization: Bearer $TOKEN_A"
 ```
 
 驳回使用另一张已提交为 PENDING 的工单（不能再驳回上面已通过的工单）：
@@ -145,9 +147,9 @@ curl -i "$BASE_URL/requests/$REQUEST_ID/events"
 ```bash
 export REQUEST_ID='<另一张 PENDING 工单 UUID>'
 curl -i "$BASE_URL/requests/$REQUEST_ID/reject" \
-  -H 'Content-Type: application/json' -H "X-Demo-User-Id: $ACTOR_B" \
+  -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN_B" \
   -d '{"reason":"采购预算不足，需要调整"}'
-curl -i "$BASE_URL/requests/$REQUEST_ID/events"
+curl -i "$BASE_URL/requests/$REQUEST_ID/events" -H "Authorization: Bearer $TOKEN_A"
 ```
 
 ## 错误响应
@@ -166,14 +168,14 @@ curl -i "$BASE_URL/requests/$REQUEST_ID/events"
 | HTTP | code                      | 触发场景                                                  |
 | ---- | ------------------------- | --------------------------------------------------------- |
 | 400  | INVALID_UUID              | 工单路径 ID 格式错误                                      |
-| 400  | INVALID_ACTOR_ID          | 写接口操作人请求头缺失或 UUID 格式错误                    |
 | 400  | VALIDATION_FAILED         | DTO 校验失败、未知请求体字段；多个信息合并到 message      |
 | 400  | BAD_REQUEST               | 其他 BadRequestException，例如 Service 的 reason 防御校验 |
+| 401  | UNAUTHORIZED              | 工单 Token 缺失、无效、过期、验证约束不符，或用户不存在、未激活 |
 | 401  | INVALID_CREDENTIALS       | 登录邮箱或密码错误、账号未激活或没有有效密码哈希           |
 | 404  | REQUEST_NOT_FOUND         | 工单不存在                                                |
-| 404  | USER_NOT_FOUND            | 操作人 UUID 有效但用户不存在                              |
+| 404  | USER_NOT_FOUND            | 认证后事务内再次查询时操作人已不存在（并发删除）                              |
 | 404  | RESOURCE_NOT_FOUND        | 路由不存在等其他404                                       |
 | 409  | INVALID_STATUS_TRANSITION | 非法状态、重复操作或并发竞争失败                          |
 | 500  | INTERNAL_SERVER_ERROR     | 数据库错误等未预期异常；message 固定为“服务器内部错误”    |
 
-Filter 的其他默认码为 CONFLICT（409）、HTTP_ERROR（其他状态）；显式业务 code 优先。500 内部详情只记录在服务器日志，不返回 SQL、约束名或堆栈。参数错误的优先级依照 Nest 参数管道执行顺序，不承诺同时存在多个错误时返回哪一项。
+Filter 的其他默认码为 CONFLICT（409）、HTTP_ERROR（其他状态）；显式业务 code 优先。500 内部详情只记录在服务器日志，不返回 SQL、约束名或堆栈。认证在参数管道之前执行；数据库连接失败等系统异常保持 500，不转换为 401。参数错误的优先级依照 Nest 参数管道执行顺序，不承诺同时存在多个错误时返回哪一项。
